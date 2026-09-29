@@ -1,32 +1,14 @@
-# Multi-stage build for production
-FROM node:18-alpine AS builder
-
-# Set working directory
+# Build the static site (tests must pass first)
+FROM node:24-alpine AS build
 WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies
-RUN npm install
-
-# Copy source code
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY . .
+RUN npm test && npm run build
 
-# Build the app
-RUN npm run build
-
-# Production stage
-FROM nginx:alpine
-
-# Copy built app to nginx
-COPY --from=builder /app/build /usr/share/nginx/html
-
-# Copy nginx config
+# Serve it
+FROM nginx:stable-alpine
 COPY nginx.conf /etc/nginx/nginx.conf
-
-# Expose port
+COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
-
-# Start nginx
 CMD ["nginx", "-g", "daemon off;"]
