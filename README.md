@@ -27,4 +27,6 @@ The image builds with Node 24, runs the tests (a failing test fails the build), 
 
 ## Deploy
 
-Azure Container Apps: `phoneme-pop` in the `portfolio-apps` resource group. The GitHub Actions pipeline is being rebuilt to match the landing page's working one.
+Azure Container Apps: `phoneme-pop` in the `portfolio-apps` resource group. `.github/workflows/deploy.yml` runs the tests on every pull request. Pushes to `main` build the image (tagged with the commit), deploy it, and wait until https://myprivateteacher.com/version.txt reports that commit.
+
+Repo secrets: `PHONEMEPOP_AZURE_CLIENT_ID`, `PHONEMEPOP_AZURE_TENANT_ID`, `PHONEMEPOP_AZURE_SUBSCRIPTION_ID` (OIDC sign-in, no password), `DOCKERHUB_USERNAME`, and `DOCKERHUB_TOKEN`.

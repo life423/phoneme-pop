@@ -1,0 +1,92 @@
+name: Test and deploy
+
+# Every pull request and push to main runs the tests. Pushes to main also build
+# the image, push it to Docker Hub tagged with the commit, deploy it to the
+# phoneme-pop Container App, and confirm the site is serving that commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  id-token: write # OIDC sign-in to Azure
+  contents: read
+
+env:
+  APP_NAME: phoneme-pop
+  RESOURCE_GROUP: portfolio-apps
+  IMAGE: docker.io/aiandrew631/phoneme-pop
+  SITE_URL: https://myprivateteacher.com
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-phoneme-pop
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push the image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          build-args: APP_VERSION=${{ github.sha }}
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Sign in to Azure
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.PHONEMEPOP_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.PHONEMEPOP_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.PHONEMEPOP_AZURE_SUBSCRIPTION_ID }}
+
+      # Authenticated pulls, so scaling up from zero never hits Docker Hub's anonymous limits.
+      - name: Deploy the new image
+        env:
+          REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          az containerapp registry set -n "$APP_NAME" -g "$RESOURCE_GROUP" --server docker.io --username "$REGISTRY_USERNAME" --password "$REGISTRY_PASSWORD" --output none
+          az containerapp update -n "$APP_NAME" -g "$RESOURCE_GROUP" --image "$IMAGE:$GITHUB_SHA" --output none
+
+      # The old container can keep answering for a while, so wait for this exact commit.
+      - name: Check the new version is live
+        run: |
+          for attempt in $(seq 1 20); do
+            if [ "$(curl -fsS "$SITE_URL/version.txt" || true)" = "$GITHUB_SHA" ]; then
+              echo "Live: $SITE_URL is serving $GITHUB_SHA"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::$SITE_URL is not serving $GITHUB_SHA after 5 minutes"
+          exit 1
