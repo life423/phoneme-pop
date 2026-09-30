@@ -5,7 +5,7 @@ import { useRealtime } from './useRealtime.js';
 import { useFrameState, useWhiteboard } from './useWhiteboard.js';
 import Stage from './Stage.jsx';
 import { INK } from './board.js';
-import { PARKED_HAND, STAGE, letterAt } from './stage.js';
+import { BOARD_SHAPE, PARKED_HAND, STAGE, letterAt } from './stage.js';
 import { ClearButton, Switch, ToolButton, ToolRail } from './Toolbar.jsx';
 import TileBar from './TileBar.jsx';
 import VideoPanel from './VideoPanel.jsx';
@@ -196,7 +196,7 @@ export default function TutorRoom() {
           End session
         </button>
       </TopBar>
-      <div className='flex min-h-0 flex-1 gap-2 p-2 sm:gap-3 sm:p-4'>
+      <div className='flex min-h-0 flex-1 items-start justify-center gap-2 p-2 sm:gap-4 sm:p-4'>
         <ToolRail label='Your tools'>
           <ToolButton icon={MousePointer2} label='Watch' pressed={tool === 'none'} onClick={() => chooseTool('none')} />
           <ToolButton
@@ -222,8 +222,7 @@ export default function TutorRoom() {
           <ToolButton icon={Undo2} label='Undo' disabled={!wb.canUndo} onClick={wb.undo} />
           <ClearButton icon={Trash2} onClear={() => send({ t: 'clear' })} />
         </ToolRail>
-        <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-2'>
-        <main className='relative min-h-0 flex-1'>
+        <main className='relative h-full min-w-0 rounded-2xl bg-slate-100 shadow' style={BOARD_SHAPE}>
           <Stage
             board={wb.board}
             me='tutor'
@@ -247,23 +246,24 @@ export default function TutorRoom() {
           )}
           {studentHere && tip && <StageNotice>{tip}</StageNotice>}
         </main>
-        <TileBar
-          count={wb.tiles.length}
-          selected={wb.tiles.find((t) => t.id === selectedTileId) || null}
-          onAdd={wb.addTiles}
-          onEdit={(text) => {
-            const ok = wb.editTile(selectedTileId, text);
-            if (ok) setSelectedTileId(null);
-            return ok;
-          }}
-          onCancelEdit={() => setSelectedTileId(null)}
-          onReset={wb.resetTiles}
-          onClear={wb.clearTiles}
-          boxes={wb.boxes}
-          onBoxes={wb.setBoxes}
-        />
+        <div className='-m-1 flex max-h-full w-64 shrink-0 flex-col gap-2 overflow-y-auto p-1 sm:gap-4 xl:w-72'>
+          <VideoPanel call={call} peerName='your student' fill />
+          <TileBar
+            count={wb.tiles.length}
+            selected={wb.tiles.find((t) => t.id === selectedTileId) || null}
+            onAdd={wb.addTiles}
+            onEdit={(text) => {
+              const ok = wb.editTile(selectedTileId, text);
+              if (ok) setSelectedTileId(null);
+              return ok;
+            }}
+            onCancelEdit={() => setSelectedTileId(null)}
+            onReset={wb.resetTiles}
+            onClear={wb.clearTiles}
+            boxes={wb.boxes}
+            onBoxes={wb.setBoxes}
+          />
         </div>
-        <VideoPanel call={call} peerName='your student' />
       </div>
     </div>
   );

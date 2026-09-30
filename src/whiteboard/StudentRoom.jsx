@@ -5,7 +5,7 @@ import { useRealtime } from './useRealtime.js';
 import { useFrameState, useWhiteboard } from './useWhiteboard.js';
 import Stage from './Stage.jsx';
 import { INK } from './board.js';
-import { PARKED_HAND, STAGE, letterAt } from './stage.js';
+import { BOARD_SHAPE, PARKED_HAND, STAGE, letterAt } from './stage.js';
 import { ToolButton, ToolRail } from './Toolbar.jsx';
 import VideoPanel from './VideoPanel.jsx';
 import { useVideoCall } from './useVideoCall.js';
@@ -176,7 +176,7 @@ export default function StudentRoom({ code }) {
       <p className='hidden bg-amber-100 px-4 py-2 text-center text-sm font-semibold text-amber-900 portrait:max-lg:block'>
         Turn your tablet sideways for bigger letters.
       </p>
-      <div className='flex min-h-0 flex-1 gap-2 p-2 sm:gap-3 sm:p-4'>
+      <div className='flex min-h-0 flex-1 items-start justify-center gap-2 p-2 sm:gap-4 sm:p-4'>
         {toolsOn && (
           <ToolRail label='Your tools'>
             <ToolButton icon={HandIcon} label='Hand' pressed={tool === 'hand'} onClick={() => chooseTool('hand')} />
@@ -185,7 +185,7 @@ export default function StudentRoom({ code }) {
             <ToolButton icon={Undo2} label='Undo' disabled={!wb.canUndo} onClick={wb.undo} />
           </ToolRail>
         )}
-        <main className='relative min-h-0 min-w-0 flex-1'>
+        <main className='relative h-full min-w-0 rounded-2xl bg-slate-100 shadow' style={BOARD_SHAPE}>
           <Stage
             board={wb.board}
             me='student'

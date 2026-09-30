@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 export function ToolRail({ label, children }) {
   return (
-    <nav aria-label={label} className='flex shrink-0 flex-col gap-1.5 self-start rounded-2xl bg-white p-1.5 shadow'>
+    <nav aria-label={label} className='flex shrink-0 flex-col gap-1.5 self-center rounded-2xl bg-white p-2 shadow'>
       {children}
     </nav>
   );

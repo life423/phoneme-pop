@@ -25,9 +25,26 @@ function RoundButton({ onClick, label, tone = 'plain', children }) {
 const capitalise = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
 // The video call, in its own collapsible column beside the board. Hiding it keeps the call going.
-export default function VideoPanel({ call, peerName }) {
+export default function VideoPanel({ call, peerName, fill = false }) {
   const [open, setOpen] = useState(true);
   const on = Boolean(call.localStream);
+
+  if (!open && fill) {
+    return (
+      <button
+        type='button'
+        onClick={() => setOpen(true)}
+        className='flex w-full items-center justify-between rounded-2xl bg-white p-3 text-sm font-bold text-slate-700 shadow hover:bg-violet-50'
+      >
+        <span className='flex items-center gap-2'>
+          <Video className='h-5 w-5' aria-hidden='true' />
+          Video
+          {call.status === 'connected' && <span className='text-xs font-semibold text-emerald-700'>connected</span>}
+        </span>
+        <span className='text-xs font-semibold text-violet-700'>Show</span>
+      </button>
+    );
+  }
 
   if (!open) {
     return (
@@ -51,8 +68,8 @@ export default function VideoPanel({ call, peerName }) {
   else if (!on && call.peerOnVideo) message = `${capitalise(peerName)} is on video`;
 
   return (
-    <aside aria-label='Video call' className='flex w-60 shrink-0 flex-col gap-2 self-start rounded-2xl bg-white p-2 shadow xl:w-72'>
-      <div className='flex items-center justify-between px-1'>
+    <aside aria-label='Video call' className={`flex shrink-0 flex-col gap-3 self-start rounded-2xl bg-white p-3 shadow ${fill ? 'w-full' : 'w-64 xl:w-72'}`}>
+      <div className='flex items-center justify-between'>
         <span className='text-sm font-bold text-slate-700'>
           Video
           {call.status === 'connected' && <span className='ml-2 text-xs font-semibold text-emerald-700'>connected</span>}
@@ -80,7 +97,7 @@ export default function VideoPanel({ call, peerName }) {
         )}
       </div>
       {call.problem && (
-        <p role='status' className='px-1 text-xs font-semibold text-rose-700'>
+        <p role='status' className='text-xs font-semibold text-rose-700'>
           {call.problem}
         </p>
       )}
