@@ -24,3 +24,9 @@ describe('isRoomCode', () => {
     for (const bad of ['482', '48270', 'abcd', '48 7', '', null]) expect(isRoomCode(bad)).toBe(false);
   });
 });
+
+describe('alphabet strip', () => {
+  it('points at nothing while the strip is hidden', () => {
+    expect(letterAt(middleOf(12), stripY, false)).toBeNull();
+  });
+});

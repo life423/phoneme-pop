@@ -10,7 +10,7 @@ let url;
 
 beforeAll(async () => {
   server = http.createServer((req, res) => res.end());
-  realtime = attachRealtime(server, { allowedOrigins: new Set([ORIGIN]), tutorGraceMs: 150 });
+  realtime = attachRealtime(server, { allowedOrigins: new Set([ORIGIN]), tutorGraceMs: 150, joinAttemptsPerWindow: 1000, maxRoomsPerIp: 1000 });
   await new Promise((resolve) => server.listen(0, resolve));
   url = `ws://localhost:${server.address().port}/ws`;
 });
@@ -275,5 +275,119 @@ describe('pointers', () => {
     back.send({ t: 'create', code, key });
     await back.take('room');
     expect(await back.take('p')).toMatchObject({ x: 0.3, y: 0.08, l: 'H', m: 'hand' });
+  });
+});
+
+describe('letter tiles', () => {
+  let n = 0;
+  const addTiles = async (tutor, texts) => {
+    tutor.send({ t: 'tile:add', tiles: texts.map((text) => ({ id: `tile${(n += 1)}`, text })) });
+    return (await tutor.take('tile:add')).tiles;
+  };
+
+  it('only the tutor adds tiles, and they line up on the tray for both', async () => {
+    const { tutor, code } = await openRoom();
+    const { student } = await joinRoom(code);
+    student.send({ t: 'tile:add', tiles: [{ id: 'sneaky', text: 'z' }] });
+    await nothing(tutor, 'tile:add');
+
+    const tiles = await addTiles(tutor, ['sh', 'i', 'p', 'bad!']);
+    expect(tiles.map((t) => [t.text, t.kind])).toEqual([
+      ['sh', 'team'],
+      ['i', 'vowel'],
+      ['p', 'consonant'],
+    ]);
+    expect(tiles.every((t) => t.y === 848 && t.x === t.hx)).toBe(true);
+    expect((await student.take('tile:add')).tiles).toHaveLength(3);
+  });
+
+  it('streams a drag live, and holds the tile for whoever is dragging it', async () => {
+    const { tutor, code } = await openRoom();
+    const { student } = await joinRoom(code);
+    const [tile] = await addTiles(tutor, ['c']);
+    await student.take('tile:add');
+
+    student.send({ t: 'tile:grab', id: tile.id });
+    expect(await tutor.take('tile:grab')).toMatchObject({ id: tile.id, by: 'student' });
+    student.send({ t: 'tile:move', id: tile.id, x: 600, y: 600 });
+    expect(await tutor.take('tile:move')).toEqual({ t: 'tile:move', id: tile.id, x: 600, y: 600 });
+
+    tutor.send({ t: 'tile:grab', id: tile.id }); // the student has it
+    expect((await tutor.take('tile:denied')).tile.heldBy).toBe('student');
+    tutor.send({ t: 'tile:move', id: tile.id, x: 100, y: 100 });
+    await nothing(student, 'tile:move');
+
+    student.send({ t: 'tile:drop', id: tile.id, x: 5000, y: 610 });
+    expect((await tutor.take('tile:drop')).tile).toMatchObject({ x: 1576 - 84, y: 610, heldBy: null });
+  });
+
+  it('snaps a tile into a free sound box when it is dropped there', async () => {
+    const { tutor } = await openRoom();
+    tutor.send({ t: 'boxes:set', count: 3 });
+    expect((await tutor.take('boxes:set')).count).toBe(3);
+    const [sh, i] = await addTiles(tutor, ['sh', 'i']);
+
+    tutor.send({ t: 'tile:grab', id: sh.id });
+    tutor.send({ t: 'tile:drop', id: sh.id, x: 500, y: 240 });
+    expect((await tutor.take('tile:drop')).tile).toMatchObject({ x: 514, y: 225 });
+
+    tutor.send({ t: 'tile:grab', id: i.id });
+    tutor.send({ t: 'tile:drop', id: i.id, x: 520, y: 230 }); // same box, already taken
+    expect((await tutor.take('tile:drop')).tile).toMatchObject({ x: 520, y: 230 });
+  });
+
+  it('keeps tile management and board settings with the tutor', async () => {
+    const { tutor, code } = await openRoom();
+    const { student } = await joinRoom(code);
+    const [m, a] = await addTiles(tutor, ['m', 'a', 'p']);
+
+    for (const msg of [
+      { t: 'tile:delete', id: m.id },
+      { t: 'tiles:clear' },
+      { t: 'tiles:reset' },
+      { t: 'strip:set', on: false },
+      { t: 'boxes:set', count: 4 },
+      { t: 'tile:edit', id: m.id, text: 'x' },
+    ]) {
+      student.send(msg);
+    }
+    await nothing(tutor, 'tile:delete');
+    await nothing(tutor, 'tiles');
+    await nothing(tutor, 'strip:set');
+
+    tutor.send({ t: 'tile:edit', id: a.id, text: 'o' }); // map becomes mop
+    expect((await student.take('tile:edit')).tile).toMatchObject({ id: a.id, text: 'o', kind: 'vowel' });
+    tutor.send({ t: 'tile:delete', id: m.id });
+    expect((await student.take('tile:delete')).id).toBe(m.id);
+    tutor.send({ t: 'tiles:reset' });
+    expect((await student.take('tiles')).tiles.map((t) => [t.text, t.x])).toEqual([
+      ['o', 48],
+      ['p', 148],
+    ]);
+    tutor.send({ t: 'strip:set', on: false });
+    expect(await student.take('strip:set')).toEqual({ t: 'strip:set', on: false });
+    tutor.send({ t: 'tiles:clear' });
+    expect((await student.take('tiles')).tiles).toEqual([]);
+  });
+
+  it('gives late joiners the tiles and settings, and gets them back after a restart', async () => {
+    const { tutor, code, key } = await openRoom();
+    tutor.send({ t: 'strip:set', on: false });
+    tutor.send({ t: 'boxes:set', count: 3 });
+    const [tile] = await addTiles(tutor, ['ck']);
+    const late = await joinRoom(code);
+    expect(late.board).toMatchObject({ strip: false, boxes: 3 });
+    expect(late.board.tiles.map((t) => t.text)).toEqual(['ck']);
+
+    realtime.rooms.delete(code); // the server restarts and forgets everything
+    late.student.ws.close();
+    const back = await connect();
+    back.send({ t: 'create', code, key });
+    expect(await back.take('room')).toMatchObject({ fresh: true });
+    back.send({ t: 'rs-tile', tile });
+    back.send({ t: 'restored', tools: false, strip: false, boxes: 3 });
+    const board = await back.take('board');
+    expect(board).toMatchObject({ strip: false, boxes: 3 });
+    expect(board.tiles.map((t) => [t.text, t.x, t.y])).toEqual([['ck', tile.x, tile.y]]);
   });
 });

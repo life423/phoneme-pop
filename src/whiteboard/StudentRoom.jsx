@@ -130,7 +130,7 @@ export default function StudentRoom({ code }) {
   const chooseTool = (next) => {
     setTool(next);
     const p = lastPoint.current;
-    if (p) share({ ...p, letter: letterAt(p.x, p.y) }, next);
+    if (p) share({ ...p, letter: letterAt(p.x, p.y, wb.strip) }, next);
   };
 
   const ending = ENDINGS[status === 'replaced' ? 'replaced' : phase];
@@ -181,6 +181,11 @@ export default function StudentRoom({ code }) {
         <main className='relative min-h-0 flex-1'>
           <Stage
             board={wb.board}
+            me='student'
+            strip={wb.strip}
+            boxes={wb.boxes}
+            tiles={wb.tiles}
+            tileActions={wb.tileActions}
             letters={{
               student: myMarker?.kind === 'hand' ? myMarker.letter : null,
               tutor: tutorMarker?.kind === 'hand' ? tutorMarker.letter : null,

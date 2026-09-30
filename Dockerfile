@@ -14,6 +14,7 @@ ENV NODE_ENV=production PORT=80
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY server ./server
+COPY shared ./shared
 COPY --from=build /app/dist ./dist
 ARG APP_VERSION=dev
 RUN echo "$APP_VERSION" > dist/version.txt

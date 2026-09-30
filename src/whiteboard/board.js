@@ -82,8 +82,8 @@ export class Board {
   }
 }
 
-export const insideBoard = ({ x, y }) =>
-  x >= BOARD.x && x <= BOARD.x + BOARD.width && y >= BOARD.y && y <= BOARD.y + BOARD.height;
+export const insideBoard = ({ x, y }, rect = BOARD) =>
+  x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
 
 function applyStyle(ctx, stroke) {
   const eraser = stroke.tool === 'eraser';
