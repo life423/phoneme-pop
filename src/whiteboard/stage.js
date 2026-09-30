@@ -20,3 +20,7 @@ export function letterAt(x, y) {
   const index = Math.floor((x - STRIP.x) / CELL_WIDTH);
   return index >= 0 && index < LETTERS.length ? LETTERS[index] : null;
 }
+
+// Where the student's hand waits until someone moves it. Both screens start it here,
+// so the tutor always has a hand to grab.
+export const PARKED_HAND = { x: 1400, y: 820 };

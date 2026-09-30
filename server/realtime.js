@@ -26,6 +26,7 @@ const isStrokeId = (value) =>
   value.length <= 40 &&
   [...value].every((c) => (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '-');
 const clamp01 = (n) => Math.min(1, Math.max(0, n));
+const cleanLetter = (l) => (typeof l === 'string' && l.length === 1 && LETTERS.includes(l) ? l : null);
 const clampTo = (n, max) => Math.round(Math.min(max, Math.max(0, n)) * 10) / 10;
 
 // Validates a flat [x, y, x, y, ...] list of stage coordinates and clamps it to the stage.
@@ -132,10 +133,12 @@ export function attachRealtime(server, options = {}) {
     ws.room = null;
     if (room.tutor === ws) {
       room.tutor = null;
+      delete room.pointers.tutor;
       clearTimeout(room.closeTimer);
       room.closeTimer = setTimeout(() => closeRoom(room, 'tutor-left'), tutorGraceMs);
     } else if (room.student === ws) {
       room.student = null;
+      delete room.pointers.student;
     }
     sendPresence(room);
   };
@@ -187,6 +190,7 @@ export function attachRealtime(server, options = {}) {
           strokes: [],
           strokeById: new Map(),
           seq: 0,
+          pointers: {}, // last known pointer of each person, for whoever (re)joins
           // After a restart the tutor's browser hands back its copy of the board.
           restoring: reuse,
         };
@@ -201,6 +205,7 @@ export function attachRealtime(server, options = {}) {
       send(ws, { t: 'room', role: 'tutor', code: room.code, key: room.key, fresh });
       sendPresence(room);
       if (!fresh) send(ws, boardMessage(room));
+      if (room.pointers.student) send(ws, { t: 'p', ...room.pointers.student });
     },
 
     // A student joins with their tutor's code. Their key lets them take back
@@ -219,6 +224,11 @@ export function attachRealtime(server, options = {}) {
       send(ws, { t: 'room', role: 'student', code: room.code, key: room.studentKey });
       sendPresence(room);
       send(ws, boardMessage(room));
+      if (room.pointers.tutor) send(ws, { t: 'p', ...room.pointers.tutor });
+      if (returning && room.pointers.student) {
+        const { x, y, l } = room.pointers.student;
+        send(ws, { t: 'moved', x, y, l });
+      }
     },
 
     // Pointers go to the other person: 0-1 stage coordinates, the tool in hand,
@@ -226,13 +236,27 @@ export function attachRealtime(server, options = {}) {
     p(ws, msg) {
       const role = roleOf(ws);
       if (!role || !allow(ws, 'pointer', POINTER_PER_SECOND)) return;
-      const to = otherSide(ws.room, role);
+      const room = ws.room;
+      const to = otherSide(room, role);
       const mode = MODES.has(msg.m) ? msg.m : 'hand';
-      if (mode === 'none') return send(to, { t: 'p', m: 'none' });
+      if (mode === 'none') {
+        delete room.pointers[role];
+        return send(to, { t: 'p', m: 'none' });
+      }
       if (!Number.isFinite(msg.x) || !Number.isFinite(msg.y)) return;
-      const letter =
-        mode === 'hand' && typeof msg.l === 'string' && msg.l.length === 1 && LETTERS.includes(msg.l) ? msg.l : null;
-      send(to, { t: 'p', x: clamp01(msg.x), y: clamp01(msg.y), l: letter, m: mode });
+      const pointer = { x: clamp01(msg.x), y: clamp01(msg.y), l: mode === 'hand' ? cleanLetter(msg.l) : null, m: mode };
+      room.pointers[role] = pointer;
+      send(to, { t: 'p', ...pointer });
+    },
+
+    // Tutor only: guide the student's hand. There is no way to move the tutor's.
+    move(ws, msg) {
+      const room = ws.room;
+      if (!room || room.tutor !== ws || !allow(ws, 'move', POINTER_PER_SECOND)) return;
+      if (!Number.isFinite(msg.x) || !Number.isFinite(msg.y)) return;
+      const pointer = { x: clamp01(msg.x), y: clamp01(msg.y), l: cleanLetter(msg.l), m: 'hand' };
+      room.pointers.student = pointer;
+      send(room.student, { t: 'moved', x: pointer.x, y: pointer.y, l: pointer.l });
     },
 
     // Stroke start. The student may only draw while the tutor has their tools on.

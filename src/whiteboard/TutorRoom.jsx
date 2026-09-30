@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { Eraser, MousePointer2, Pencil, Trash2, Undo2 } from 'lucide-react';
+import { Eraser, Hand as HandIcon, MousePointer2, Pencil, Trash2, Undo2 } from 'lucide-react';
 import { navigate } from '../router.jsx';
 import { useRealtime } from './useRealtime.js';
 import { useFrameState, useWhiteboard } from './useWhiteboard.js';
 import Stage from './Stage.jsx';
 import { INK } from './board.js';
-import { STAGE } from './stage.js';
+import { PARKED_HAND, STAGE, letterAt } from './stage.js';
 import { ClearButton, Switch, ToolButton, ToolRail } from './Toolbar.jsx';
 import { CopyButton, MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
 
 const SAVED = 'wb-tutor';
 const round4 = (n) => Math.round(n * 10000) / 10000;
 const ACTIVITY = { pen: 'Writing ✏️', eraser: 'Erasing 🧽' };
+const PARKED_STUDENT = { kind: 'hand', by: 'student', x: PARKED_HAND.x, y: PARKED_HAND.y, letter: null, smooth: true };
 
 function loadSaved() {
   try {
@@ -27,11 +28,15 @@ export default function TutorRoom() {
   const [studentTools, setStudentTools] = useState(false);
   const [tool, setTool] = useState('none');
   const [busy, setBusy] = useState(false);
+  const [tip, setTip] = useState(null);
   const [studentMarker, setStudentMarker] = useFrameState(null);
   const [myMarker, setMyMarker] = useFrameState(null);
   const roomRef = useRef(room);
   const studentToolsRef = useRef(studentTools);
   const sendRef = useRef(() => {});
+  const lastPoint = useRef(null);
+  const dragging = useRef(false); // true while you're moving the student's hand
+  const tipShown = useRef(false);
   roomRef.current = room;
   studentToolsRef.current = studentTools;
 
@@ -52,9 +57,17 @@ export default function TutorRoom() {
       } else if (msg.t === 'tools') {
         setStudentTools(Boolean(msg.on));
       } else if (msg.t === 'presence') {
-        setStudentHere(msg.student);
+        if (msg.student && !studentHere) {
+          setStudentMarker(PARKED_STUDENT);
+          if (!tipShown.current) {
+            tipShown.current = true;
+            setTip('Tip: drag your student’s hand to guide it');
+          }
+        }
         if (!msg.student) setStudentMarker(null);
+        setStudentHere(msg.student);
       } else if (msg.t === 'p') {
+        if (dragging.current) return; // you have the student's hand right now
         setStudentMarker(
           msg.m === 'none'
             ? null
@@ -66,6 +79,12 @@ export default function TutorRoom() {
     },
   });
   sendRef.current = send;
+
+  useEffect(() => {
+    if (!tip) return undefined;
+    const timer = setTimeout(() => setTip(null), 5000);
+    return () => clearTimeout(timer);
+  }, [tip]);
 
   useEffect(() => {
     const onKey = (event) => {
@@ -91,17 +110,39 @@ export default function TutorRoom() {
     navigate('/whiteboard');
   };
 
+  // Shows your pointer here and on the student's screen.
+  const share = (p, mode) => {
+    lastPoint.current = p;
+    const letter = mode === 'hand' ? p.letter : null;
+    setMyMarker({ kind: mode, by: 'tutor', x: p.x, y: p.y, letter });
+    wb.sendPointer({ t: 'p', x: round4(p.x / STAGE.width), y: round4(p.y / STAGE.height), l: letter, m: mode });
+  };
+
   const chooseTool = (next) => {
     setTool(next);
     if (next === 'none') {
       setMyMarker(null);
       wb.sendPointer({ t: 'p', m: 'none' });
+      return;
     }
+    const p = lastPoint.current;
+    if (p) share({ ...p, letter: letterAt(p.x, p.y) }, next);
   };
 
-  const onPoint = (p) => {
-    setMyMarker({ kind: tool, by: 'tutor', x: p.x, y: p.y });
-    wb.sendPointer({ t: 'p', x: round4(p.x / STAGE.width), y: round4(p.y / STAGE.height), m: tool });
+  const onPoint = (p) => share(p, tool);
+
+  // Dragging the student's hand: it moves here right away and glides on their screen.
+  const grab = {
+    start: () => {
+      dragging.current = true;
+    },
+    move: (p) => {
+      setStudentMarker({ kind: 'hand', by: 'student', x: p.x, y: p.y, letter: p.letter, smooth: false });
+      wb.sendMove({ t: 'move', x: round4(p.x / STAGE.width), y: round4(p.y / STAGE.height), l: p.letter });
+    },
+    end: () => {
+      dragging.current = false;
+    },
   };
 
   const onLeave = () => {
@@ -148,6 +189,13 @@ export default function TutorRoom() {
         <ToolRail label='Your tools'>
           <ToolButton icon={MousePointer2} label='Watch' pressed={tool === 'none'} onClick={() => chooseTool('none')} />
           <ToolButton
+            icon={HandIcon}
+            label='Hand'
+            swatch={INK.tutor}
+            pressed={tool === 'hand'}
+            onClick={() => chooseTool(tool === 'hand' ? 'none' : 'hand')}
+          />
+          <ToolButton
             icon={Pencil}
             label='Pen'
             swatch={INK.tutor}
@@ -166,9 +214,11 @@ export default function TutorRoom() {
         <main className='relative min-h-0 flex-1'>
           <Stage
             board={wb.board}
-            activeLetter={pointing}
+            letters={{ student: pointing, tutor: myMarker?.kind === 'hand' ? myMarker.letter : null }}
             tool={tool}
             markers={markers}
+            grabbable={studentMarker?.kind === 'hand' ? studentMarker : null}
+            onGrab={grab}
             onPoint={onPoint}
             onLeave={onLeave}
             onStroke={{ start: (p) => wb.stroke.start(tool, p), move: wb.stroke.move, end: wb.stroke.end }}
@@ -176,6 +226,7 @@ export default function TutorRoom() {
           {!studentHere && room.code && (
             <StageNotice>Your student opens myprivateteacher.com/whiteboard and types {room.code}</StageNotice>
           )}
+          {studentHere && tip && <StageNotice>{tip}</StageNotice>}
         </main>
       </div>
     </div>

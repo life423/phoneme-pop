@@ -33,14 +33,14 @@ export function useWhiteboard(role, send) {
   sendRef.current = send;
   const active = useRef(null);
   const flushTimer = useRef(null);
-  const pointer = useRef({ timer: null, last: 0, message: null });
+  const channels = useRef({}); // throttled senders: 'p' (my pointer), 'move' (the student's hand)
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
   useEffect(
     () => () => {
       clearTimeout(flushTimer.current);
-      clearTimeout(pointer.current.timer);
+      for (const channel of Object.values(channels.current)) clearTimeout(channel.timer);
     },
     [],
   );
@@ -106,19 +106,22 @@ export function useWhiteboard(role, send) {
 
   const undo = useCallback(() => sendRef.current({ t: 'undo' }), []);
 
-  const sendPointer = useCallback((message) => {
-    const p = pointer.current;
-    p.message = message;
-    if (p.timer) return;
-    p.timer = setTimeout(
+  // At most one message per channel every POINTER_MS; the newest one always wins.
+  const sendThrottled = useCallback((name, message) => {
+    const channel = channels.current[name] || (channels.current[name] = { timer: null, last: 0, message: null });
+    channel.message = message;
+    if (channel.timer) return;
+    channel.timer = setTimeout(
       () => {
-        p.timer = null;
-        p.last = performance.now();
-        sendRef.current(p.message);
+        channel.timer = null;
+        channel.last = performance.now();
+        sendRef.current(channel.message);
       },
-      Math.max(0, POINTER_MS - (performance.now() - p.last)),
+      Math.max(0, POINTER_MS - (performance.now() - channel.last)),
     );
   }, []);
+  const sendPointer = useCallback((message) => sendThrottled('p', message), [sendThrottled]);
+  const sendMove = useCallback((message) => sendThrottled('move', message), [sendThrottled]);
 
   // After a server restart, the tutor hands back the board they still have.
   const restore = useCallback(
@@ -173,6 +176,7 @@ export function useWhiteboard(role, send) {
     undo,
     canUndo: board.lastBy(role) !== null,
     sendPointer,
+    sendMove,
     restore,
   };
 }

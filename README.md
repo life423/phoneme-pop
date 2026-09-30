@@ -32,6 +32,8 @@ Both screens draw the same fixed 1600 x 1000 stage, scaled to fit, so a point on
 
 Because rooms live in memory, the Container App runs exactly one replica.
 
+Tools: the tutor has their own hand (a blue glove), a blue pen, an eraser, undo and a two-tap clear, and can drag the student's hand to guide it. The student's toolbar (hand, black pen, eraser, undo) appears only while the tutor has Student tools switched on, and the server enforces that. The board is one ordered list of strokes: ink sits on two layers so the student's eraser can't touch the tutor's writing, and each person's undo only takes back their own strokes. After a restart, the tutor's browser hands the board back to the server.
+
 ## Content notes
 
 - Words live in `src/data/wordLists.js`. In `display`, vowels carry a breve (short) or macron (long), and `[brackets]` mark letters that make one sound together; they render underlined.

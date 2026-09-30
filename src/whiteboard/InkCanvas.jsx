@@ -2,10 +2,11 @@ import { memo, useEffect, useRef } from 'react';
 import { drawAll, drawStroke } from './board.js';
 import { BOARD, STAGE } from './stage.js';
 
-// The ink layer: a canvas laid exactly over the stage, in stage coordinates,
-// clipped to the whiteboard. New points draw straight away; anything that
-// changes the order (a stroke ending, undo, clear) replays the whole list.
-function InkCanvas({ board, layout }) {
+// One ink layer: a canvas laid exactly over the stage, in stage coordinates, clipped
+// to the whiteboard, drawing the strokes that `include` picks. New points draw
+// straight away; anything that changes the order (a stroke ending, undo, clear)
+// replays the whole list.
+function InkCanvas({ board, layout, include }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -25,19 +26,19 @@ function InkCanvas({ board, layout }) {
     let frame = 0;
     const redraw = () => {
       frame = 0;
-      drawAll(ctx, board.strokes);
+      drawAll(ctx, board.strokes.filter(include));
     };
     redraw();
     const unsubscribe = board.subscribe((event) => {
       if (frame) return; // a full redraw is already on its way
-      if (event.type === 'segment') drawStroke(ctx, event.stroke, event.from);
-      else frame = requestAnimationFrame(redraw);
+      if (event.type !== 'segment') frame = requestAnimationFrame(redraw);
+      else if (include(event.stroke)) drawStroke(ctx, event.stroke, event.from);
     });
     return () => {
       unsubscribe();
       cancelAnimationFrame(frame);
     };
-  }, [board, layout.width, layout.height]);
+  }, [board, include, layout.width, layout.height]);
 
   return (
     <canvas

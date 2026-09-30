@@ -252,3 +252,28 @@ describe('drawing', () => {
     expect(rejoined.board.tools).toBe(true);
   });
 });
+
+describe('pointers', () => {
+  it('lets the tutor move the student’s hand, but never the other way round', async () => {
+    const { tutor, code } = await openRoom();
+    const { student } = await joinRoom(code);
+    tutor.send({ t: 'move', x: 0.25, y: 0.1, l: 'G' });
+    expect(await student.take('moved')).toEqual({ t: 'moved', x: 0.25, y: 0.1, l: 'G' });
+
+    student.send({ t: 'move', x: 0.9, y: 0.9 });
+    await nothing(tutor, 'moved');
+    await nothing(tutor, 'p');
+  });
+
+  it('shows a returning tutor where the student is pointing', async () => {
+    const { tutor, code, key } = await openRoom();
+    const { student } = await joinRoom(code);
+    student.send({ t: 'p', x: 0.3, y: 0.08, l: 'H', m: 'hand' });
+    await tutor.take('p');
+
+    const back = await connect(); // the tutor refreshes: same code and key, new connection
+    back.send({ t: 'create', code, key });
+    await back.take('room');
+    expect(await back.take('p')).toMatchObject({ x: 0.3, y: 0.08, l: 'H', m: 'hand' });
+  });
+});

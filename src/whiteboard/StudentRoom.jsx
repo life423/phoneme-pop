@@ -5,11 +5,12 @@ import { useRealtime } from './useRealtime.js';
 import { useFrameState, useWhiteboard } from './useWhiteboard.js';
 import Stage from './Stage.jsx';
 import { INK } from './board.js';
-import { STAGE, letterAt } from './stage.js';
+import { PARKED_HAND, STAGE, letterAt } from './stage.js';
 import { ToolButton, ToolRail } from './Toolbar.jsx';
 import { MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
 
 const round4 = (n) => Math.round(n * 10000) / 10000;
+const PARKED = { kind: 'hand', by: 'student', x: PARKED_HAND.x, y: PARKED_HAND.y, letter: null };
 
 const ENDINGS = {
   'no-room': ['We can’t find that room', 'Check the 4-digit code with your tutor and try again.'],
@@ -26,6 +27,7 @@ export default function StudentRoom({ code }) {
   const [toolsOn, setToolsOn] = useState(false);
   const [tool, setTool] = useState('hand');
   const [notice, setNotice] = useState(null);
+  const [touched, setTouched] = useState(false);
   const [myMarker, setMyMarker] = useFrameState(null);
   const [tutorMarker, setTutorMarker] = useFrameState(null);
   const keyRef = useRef(sessionStorage.getItem(storageKey));
@@ -58,12 +60,25 @@ export default function StudentRoom({ code }) {
         joined.current = true;
         retries.current = 0;
         setPhase('in');
+        // Your hand starts parked at the bottom of the board, the same spot your tutor sees.
+        if (!lastPoint.current) {
+          lastPoint.current = { x: PARKED.x, y: PARKED.y, letter: null };
+          setMyMarker(PARKED);
+        }
+      } else if (msg.t === 'moved') {
+        // Your tutor is guiding your hand.
+        if (tool !== 'hand') return;
+        const p = { x: msg.x * STAGE.width, y: msg.y * STAGE.height, letter: msg.l };
+        lastPoint.current = p;
+        setMyMarker({ kind: 'hand', by: 'student', ...p, smooth: true });
       } else if (msg.t === 'presence') {
         setTutorHere(msg.tutor);
         if (!msg.tutor) setTutorMarker(null);
       } else if (msg.t === 'p') {
         setTutorMarker(
-          msg.m === 'none' ? null : { kind: msg.m, by: 'tutor', x: msg.x * STAGE.width, y: msg.y * STAGE.height, smooth: true },
+          msg.m === 'none'
+            ? null
+            : { kind: msg.m, by: 'tutor', x: msg.x * STAGE.width, y: msg.y * STAGE.height, letter: msg.l, smooth: true },
         );
       } else if (msg.t === 'closed') {
         sessionStorage.removeItem(storageKey);
@@ -106,6 +121,7 @@ export default function StudentRoom({ code }) {
   // Shows this pointer locally and shares it with the tutor.
   const share = (p, mode) => {
     lastPoint.current = p;
+    if (!touched) setTouched(true);
     const letter = mode === 'hand' ? p.letter : null;
     setMyMarker({ kind: mode, by: 'student', x: p.x, y: p.y, letter });
     wb.sendPointer({ t: 'p', x: round4(p.x / STAGE.width), y: round4(p.y / STAGE.height), l: letter, m: mode });
@@ -165,7 +181,10 @@ export default function StudentRoom({ code }) {
         <main className='relative min-h-0 flex-1'>
           <Stage
             board={wb.board}
-            activeLetter={myMarker?.letter ?? null}
+            letters={{
+              student: myMarker?.kind === 'hand' ? myMarker.letter : null,
+              tutor: tutorMarker?.kind === 'hand' ? tutorMarker.letter : null,
+            }}
             tool={tool}
             markers={markers}
             onPoint={(p) => share(p, tool)}
@@ -177,7 +196,7 @@ export default function StudentRoom({ code }) {
           />
           {phase === 'in' && notice && <StageNotice>{notice}</StageNotice>}
           {phase === 'in' && !notice && !tutorHere && <StageNotice>Waiting for your tutor…</StageNotice>}
-          {phase === 'in' && !notice && tutorHere && !myMarker && !toolsOn && (
+          {phase === 'in' && !notice && tutorHere && !touched && !toolsOn && (
             <StageNotice>Move the hand to a letter ✋</StageNotice>
           )}
         </main>

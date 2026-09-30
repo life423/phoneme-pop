@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Board } from './board.js';
+import { Board, STUDENT_LAYER, TUTOR_LAYER } from './board.js';
 
 const stroke = (id, by, seq) => ({ id, by, tool: 'pen', pts: [10, 10], seq });
 
@@ -35,5 +35,18 @@ describe('Board', () => {
     board.replace([]);
     expect(events).toEqual(['segment', 'segment', 'redraw', 'redraw']);
     expect(board.strokes).toEqual([]);
+  });
+});
+
+describe('ink layers', () => {
+  it('keeps the student’s eraser off the tutor’s writing', () => {
+    const strokes = [
+      { by: 'tutor', tool: 'pen' },
+      { by: 'tutor', tool: 'eraser' },
+      { by: 'student', tool: 'pen' },
+      { by: 'student', tool: 'eraser' },
+    ];
+    expect(strokes.map(TUTOR_LAYER)).toEqual([true, true, false, false]);
+    expect(strokes.map(STUDENT_LAYER)).toEqual([false, true, true, true]);
   });
 });

@@ -119,3 +119,9 @@ export function drawAll(ctx, strokes) {
   ctx.clearRect(0, 0, STAGE.width, STAGE.height);
   for (const stroke of strokes) drawStroke(ctx, stroke);
 }
+
+// Two ink layers: the tutor's writing, with the student's on top. A student's
+// eraser only reaches their own layer, so it can't rub out the tutor's writing;
+// the tutor's eraser reaches both.
+export const TUTOR_LAYER = (stroke) => stroke.by === 'tutor';
+export const STUDENT_LAYER = (stroke) => stroke.by === 'student' || stroke.tool === 'eraser';
