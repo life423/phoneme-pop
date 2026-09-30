@@ -11,24 +11,27 @@ export const MAX_ZOOM = 4;
 
 // Set by the layout: on narrower screens a board held upright starts filling the height, and
 // with the alphabet bar pinned above it (phones), it starts at the writing area below the strip.
-export const BoardFit = createContext({ fill: false, bar: false });
+// `align: 'end'` sits a board that's shorter than its box at the bottom, leaving the spare room
+// on top (tablets held upright put the video there).
+export const BoardFit = createContext({ fill: false, bar: false, align: 'center' });
 
 // Where the writing area starts, for a phone that shows the alphabet in its own bar.
 export const BELOW_STRIP = 168;
 
 // Where the board sits in a width x height box for a view. Bigger than the box, it never
 // leaves a gap at an edge; smaller, it sits in the middle.
-export function frame(width, height, view) {
+export function frame(width, height, view, align = 'center') {
   if (!width || !height) return { left: 0, top: 0, width: 0, height: 0, scale: 0, fit: 0, max: 0 };
   const fit = Math.min(width / STAGE.width, height / STAGE.height);
   const max = Math.max(width / STAGE.width, height / STAGE.height) * MAX_ZOOM;
   const scale = view ? clamp(view.scale, fit, max) : fit;
   const w = STAGE.width * scale;
   const h = STAGE.height * scale;
-  const place = (box, size, centre) => (size <= box ? (box - size) / 2 : clamp(box / 2 - centre * scale, box - size, 0));
+  const place = (box, size, centre, end = false) =>
+    size <= box ? (end ? box - size : (box - size) / 2) : clamp(box / 2 - centre * scale, box - size, 0);
   return {
     left: place(width, w, view ? view.cx : STAGE.width / 2),
-    top: place(height, h, view ? view.cy : STAGE.height / 2),
+    top: place(height, h, view ? view.cy : STAGE.height / 2, align === 'end'),
     width: w,
     height: h,
     scale,

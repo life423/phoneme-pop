@@ -7,6 +7,10 @@ describe('the whiteboard viewport', () => {
     expect(viewBoxOf(frame(1600, 1000, null), 1600, 1000)).toBe('0 0 1600 1000');
   });
 
+  it('can sit the board at the bottom of a taller box, leaving the room on top', () => {
+    expect(frame(700, 675, null, 'end')).toMatchObject({ width: 700, height: 437.5, left: 0, top: 675 - 437.5 });
+  });
+
   it('fills an upright phone from the left edge of the board', () => {
     const f = frame(393, 700, fillView(393, 700));
     expect(f).toMatchObject({ scale: 0.7, height: 700, top: 0, left: 0, width: 1120 });

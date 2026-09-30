@@ -171,10 +171,13 @@ export default function Stage({
   // person alone. The board's own coordinates never change, so the other screen never notices.
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [view, setView] = useState(null);
-  const { fill, bar: alphabetBar } = useContext(BoardFit);
+  const { fill, bar: alphabetBar, align, sticky } = useContext(BoardFit);
   const fillTop = alphabetBar && strip ? BELOW_STRIP : 0; // the alphabet has its own bar, so start at the writing
   const filled = useRef(false);
-  const layout = frame(size.width, size.height, view);
+  // On tablets the automatic fill keeps filling as the space changes (the sheet sliding up or
+  // down), until someone zooms, pans or fits the board themselves.
+  const autoFill = useRef(false);
+  const layout = frame(size.width, size.height, view, align);
   const viewBox = viewBoxOf(layout, size.width, size.height);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
@@ -202,6 +205,7 @@ export default function Stage({
   // The tutor asked this screen to show a part of the board: as big as fits, in the middle.
   useEffect(() => {
     if (!focus || !size.width) return;
+    autoFill.current = false;
     const scale = Math.min(size.width / focus.w, size.height / focus.h);
     if (scale <= frame(size.width, size.height, null).fit * 1.02) setView(null);
     else setView({ scale, cx: focus.x + focus.w / 2, cy: focus.y + focus.h / 2 });
@@ -224,6 +228,9 @@ export default function Stage({
       setSize({ width, height });
       if (fill && !filled.current && width && height / width > (STAGE.height / STAGE.width) * 1.15) {
         filled.current = true;
+        autoFill.current = Boolean(sticky);
+        setView(fillView(width, height, fillTop));
+      } else if (autoFill.current && width && height) {
         setView(fillView(width, height, fillTop));
       }
     };
@@ -231,7 +238,7 @@ export default function Stage({
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [fill]);
+  }, [fill, fillTop, sticky]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Zooming and panning. Everything is in the board box's own pixels.
   const local = (clientX, clientY) => {
@@ -244,6 +251,7 @@ export default function Stage({
   };
   // Shows board point (x, y) at box point (px, py) at a scale; all the way out means 'fit'.
   const zoomTo = (scale, x, y, px, py) => {
+    autoFill.current = false;
     const f = layoutRef.current;
     if (scale <= f.fit * 1.02) return setView(null);
     const { width, height } = sizeRef.current;
@@ -621,7 +629,10 @@ export default function Stage({
       {layout.scale > 0 && (view || size.height / size.width > 0.72) && (
         <button
           type='button'
-          onClick={() => setView(view ? null : fillView(size.width, size.height, fillTop))}
+          onClick={() => {
+            autoFill.current = !view && Boolean(sticky);
+            setView(view ? null : fillView(size.width, size.height, fillTop));
+          }}
           aria-label={view ? 'Fit the whole board' : 'Fill the screen with the board'}
           title={view ? 'Fit the whole board' : 'Fill the screen with the board'}
           className='absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-slate-700 shadow ring-1 ring-slate-200 hover:bg-white'
