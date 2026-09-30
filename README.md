@@ -1,82 +1,32 @@
-# Phoneme Pop! 🎯
+# Phoneme Pop 🎯
 
-An educational phonics game designed to help children with dyslexia learn phoneme segmentation and blending through multisensory learning.
+A multisensory phonics game for learners with dyslexia: hear a word, split it into its sounds, and put the sounds back in order. Live at https://myprivateteacher.com.
 
-## Features
+## Develop
 
-- **Phoneme Segmentation**: Break words into individual sounds
-- **Sequential Ordering**: Practice putting sounds back in correct order
-- **Multisensory Learning**: Visual symbols, audio feedback, and diacritical marks
-- **Progressive Difficulty**: 3 levels from CVC words to complex patterns
-- **Speech Synthesis**: Built-in text-to-speech for pronunciation
-- **Responsive Design**: Works on desktop, tablet, and mobile
-
-## Quick Start
-
-1. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-2. **Setup environment**
-   ```bash
-   cp .env.example .env
-   ```
-
-3. **Start development server**
-   ```bash
-   npm start
-   ```
-
-4. **Build for production**
-   ```bash
-   npm run build
-   ```
-
-## Project Structure
-
-```
-src/
-├── components/           # React components
-│   ├── PhonemeSeparationGame.js  # Main game component
-│   ├── GameHeader.js            # Score and level display
-│   ├── InstructionsPanel.js     # How to play instructions
-│   ├── WordBubble.js            # Initial word display
-│   ├── PhonemeBubbles.js        # Individual phoneme bubbles
-│   ├── TipsCarousel.js          # Educational tips rotation
-│   ├── CelebrationOverlay.js    # Success animation
-│   └── ProgressBar.js           # Level progress indicator
-├── data/                # Game data
-│   ├── educationalTips.js       # Learning tips and hints
-│   ├── phonemeSymbols.js        # Visual symbols for sounds
-│   └── wordLists.js             # Words organized by difficulty
-├── hooks/               # Custom React hooks
-│   └── useGameState.js          # Game state management
-├── utils/               # Utility functions
-│   ├── speechUtils.js           # Text-to-speech functionality
-│   └── diacriticalUtils.js      # Phonetic marking helpers
-├── App.js               # Main app component
-├── index.js             # React entry point
-└── index.css            # Global styles with Tailwind
+```bash
+npm install
+npm run dev      # http://localhost:3000
+npm test         # game-logic tests (Vitest)
+npm run build    # production build in dist/
 ```
 
-## Educational Approach
+## Run the production container locally
 
-- **Diacritical Marks**: Uses breve (˘) for short vowels, macron (¯) for long vowels
-- **Visual Mnemonics**: Each phoneme has an associated emoji and hint
-- **Structured Progression**: CVC → Blends/Digraphs → Complex Patterns
-- **Immediate Feedback**: Audio and visual confirmation of correct/incorrect attempts
+```bash
+docker compose up --build   # http://localhost:8080
+```
 
-## Technologies
+The image builds with Node 24, runs the tests (a failing test fails the build), and serves `dist/` from nginx. `nginx.conf` handles compression, caching, security headers, and redirecting www and the Azure default hostname to https://myprivateteacher.com.
 
-- React 18
-- Tailwind CSS
-- Lucide React (icons)
-- Web Speech API (text-to-speech)
+## Content notes
 
-## Browser Support
+- Words live in `src/data/wordLists.js`. In `display`, vowels carry a breve (short) or macron (long), and `[brackets]` mark letters that make one sound together; they render underlined.
+- Keyword pictures live in `src/data/phonemeSymbols.js`. A picture's name should start with its sound, and no picture should stand for two different sounds.
+- Text-to-speech is used for whole words and feedback only. Single sounds need recorded clips, because TTS reads a lone letter by its name.
 
-Works in all modern browsers that support:
-- ES6+ JavaScript
-- Web Speech API (for audio feedback)
-- CSS Grid and Flexbox
+## Deploy
+
+Azure Container Apps: `phoneme-pop` in the `portfolio-apps` resource group. `.github/workflows/deploy.yml` runs the tests on every pull request. Pushes to `main` build the image (tagged with the commit), deploy it, and wait until https://myprivateteacher.com/version.txt reports that commit.
+
+Repo secrets: `PHONEMEPOP_AZURE_CLIENT_ID`, `PHONEMEPOP_AZURE_TENANT_ID`, `PHONEMEPOP_AZURE_SUBSCRIPTION_ID` (OIDC sign-in, no password), `DOCKERHUB_USERNAME`, and `DOCKERHUB_TOKEN`.
