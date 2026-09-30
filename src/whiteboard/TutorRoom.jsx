@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Crosshair, Eraser, Hand as HandIcon, Image as ImageIcon, MousePointer2, Pencil, Trash2, Type, Undo2 } from 'lucide-react';
+import { Crosshair, Eraser, Eye, EyeOff, Hand as HandIcon, Image as ImageIcon, MousePointer2, Pencil, Trash2, Type, Undo2 } from 'lucide-react';
 import { navigate } from '../router.jsx';
 import { useRealtime } from './useRealtime.js';
 import { useFrameState, useWhiteboard } from './useWhiteboard.js';
@@ -190,7 +190,7 @@ export default function TutorRoom() {
     wb.sendPointer({ t: 'p', m: 'none' });
   };
 
-  let pill = <StatusPill tone='wait'>Waiting for your student</StatusPill>;
+  let pill = <StatusPill tone='wait'>Waiting for student</StatusPill>;
   if (status !== 'open') pill = <StatusPill tone='bad'>Reconnecting…</StatusPill>;
   else if (studentHere) pill = <StatusPill tone='good'>Student connected</StatusPill>;
 
@@ -205,25 +205,39 @@ export default function TutorRoom() {
           title='Alphabet Whiteboard'
           menu={
             <>
-              {room.code && <CopyButton text={`${window.location.origin}/whiteboard/${room.code}`} label='Copy student link' />}
+              {room.code && <CopyButton text={`${window.location.origin}/whiteboard/${room.code}`} label='Copy link' />}
               <Switch checked={studentTools} onChange={(on) => send({ t: 'tools', on })} label='Student tools' />
               <Switch checked={wb.strip} onChange={wb.setStrip} label='Alphabet strip' />
-              <p className='min-w-[9rem] text-base text-slate-700'>
+              <p className='text-base text-slate-700'>
                 {activity || (
                   <>
                     Pointing at <strong className='inline-block w-8 text-center text-2xl text-violet-700'>{pointing || '–'}</strong>
                   </>
                 )}
               </p>
-              <Switch checked={showStudentView} onChange={setShowStudentView} label='Student’s view' />
+              <button
+                type='button'
+                aria-pressed={showStudentView}
+                aria-label='Outline what the student can see'
+                title={showStudentView ? 'Hide the outline of what the student can see' : 'Outline what the student can see'}
+                onClick={() => setShowStudentView((was) => !was)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-sm font-semibold ${
+                  showStudentView ? 'border-violet-300 bg-violet-50 text-violet-700' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                {showStudentView ? <Eye className='h-4 w-4' aria-hidden='true' /> : <EyeOff className='h-4 w-4' aria-hidden='true' />}
+                <span className='hide-inline'>Student’s view</span>
+              </button>
               <button
                 type='button'
                 disabled={!studentHere}
+                aria-label='Show my view to student'
+                title='Show my view to student'
                 onClick={() => myView.current && send({ t: 'focus', ...myView.current })}
-                className='inline-flex items-center gap-1.5 rounded-full border border-violet-300 px-3 py-1 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-40'
+                className='inline-flex items-center gap-1.5 rounded-full border border-violet-300 px-2.5 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-40'
               >
                 <Crosshair className='h-4 w-4' aria-hidden='true' />
-                Show my view to student
+                <span className='hide-inline'>Show my view to student</span>
               </button>
               <FocusButton onClick={() => layout.current?.setFocus(true)} />
             </>
@@ -239,8 +253,7 @@ export default function TutorRoom() {
           }
         >
           <div className='flex shrink-0 items-center gap-2'>
-            <span className='hidden text-sm font-semibold text-slate-600 sm:inline'>Code</span>
-            <span className='rounded-lg bg-violet-600 px-3 py-1 font-mono text-2xl font-bold tracking-widest text-white'>
+            <span title='Room code' className='rounded-lg bg-violet-600 px-3 py-1 font-mono text-2xl font-bold tracking-widest text-white'>
               {room.code || '····'}
             </span>
           </div>
