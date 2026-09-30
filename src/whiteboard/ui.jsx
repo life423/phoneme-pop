@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Check, Copy, Maximize2, MoreHorizontal } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Maximize2, MoreHorizontal, X } from 'lucide-react';
 import { Link } from '../router.jsx';
 
 // The header. `children` are the essentials, always shown. `menu` holds the session controls:
@@ -93,11 +93,24 @@ export function FocusButton({ onClick }) {
   );
 }
 
+// A message over the board. Its X closes it, and it stays closed until the message changes.
 export function StageNotice({ children }) {
+  const text = [].concat(children).join('');
+  const [closed, setClosed] = useState(null);
+  if (closed === text) return null;
   return (
-    <div className='pointer-events-none absolute inset-x-0 top-[22%] flex justify-center px-3 sm:px-4'>
-      <p className='rounded-2xl bg-slate-900/80 px-3 py-1.5 text-center text-sm font-semibold text-white shadow-lg sm:rounded-full sm:px-5 sm:py-2 sm:text-base'>
-        {children}
+    <div className='pointer-events-none absolute inset-x-0 top-[22%] z-10 flex justify-center px-3 sm:px-4'>
+      <p className='pointer-events-auto flex items-center gap-2 rounded-2xl bg-slate-900/80 py-1.5 pl-3 pr-1.5 text-center text-sm font-semibold text-white shadow-lg sm:rounded-full sm:py-2 sm:pl-5 sm:pr-2 sm:text-base'>
+        <span>{children}</span>
+        <button
+          type='button'
+          onClick={() => setClosed(text)}
+          aria-label='Close this message'
+          title='Close'
+          className='shrink-0 rounded-full p-1 text-white/80 hover:bg-white/15 hover:text-white'
+        >
+          <X className='h-4 w-4' aria-hidden='true' />
+        </button>
       </p>
     </div>
   );
