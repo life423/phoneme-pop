@@ -84,6 +84,7 @@ export default function PicturesPanel({
   onAddFile,
   onClear,
   onPlace,
+  onPlaced,
   onOffer,
   onWithdraw,
   onReset,
@@ -163,6 +164,7 @@ export default function PicturesPanel({
       if (!at) return false;
     }
     onPlace({ offer: offerId, pic: pic.id, crop, x: at.x - w / 2, y: at.y - h / 2, w });
+    onPlaced?.();
     if (student) setSelection(null);
     return true;
   };

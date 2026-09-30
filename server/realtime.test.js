@@ -590,3 +590,26 @@ describe('pictures and pieces', () => {
     await nothing(tutor, 'piece:add');
   });
 });
+
+describe('each screen’s view of the board', () => {
+  it('shows the tutor what the student can see, and brings the student to the tutor’s view', async () => {
+    const { tutor, code } = await openRoom();
+    const { student } = await joinRoom(code);
+    student.send({ t: 'view', x: 10.4, y: -5, w: 540, h: 1000 });
+    expect(await tutor.take('view')).toMatchObject({ x: 10, y: 0, w: 540, h: 1000 });
+    tutor.send({ t: 'focus', x: 24, y: 24, w: 400, h: 250 });
+    expect(await student.take('focus')).toMatchObject({ x: 24, y: 24, w: 400, h: 250 });
+  });
+
+  it('only lets the tutor move the student’s view, and ignores nonsense', async () => {
+    const { tutor, code } = await openRoom();
+    const { student } = await joinRoom(code);
+    tutor.send({ t: 'view', x: 0, y: 0, w: 400, h: 250 });
+    await nothing(student, 'view');
+    student.send({ t: 'focus', x: 0, y: 0, w: 400, h: 250 });
+    await nothing(tutor, 'focus');
+    tutor.send({ t: 'focus', x: 'a', y: 0, w: 400, h: 250 });
+    tutor.send({ t: 'focus', x: 0, y: 0, w: 5, h: 5 });
+    await nothing(student, 'focus');
+  });
+});

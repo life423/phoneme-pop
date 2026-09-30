@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { Eraser, Hand as HandIcon, MousePointer2, Pencil, Trash2, Undo2 } from 'lucide-react';
+import { Crosshair, Eraser, Hand as HandIcon, Image as ImageIcon, MousePointer2, Pencil, Trash2, Type, Undo2 } from 'lucide-react';
 import { navigate } from '../router.jsx';
 import { useRealtime } from './useRealtime.js';
 import { useFrameState, useWhiteboard } from './useWhiteboard.js';
 import Stage from './Stage.jsx';
 import { INK } from './board.js';
-import { BOARD_SHAPE, PARKED_HAND, STAGE, letterAt } from './stage.js';
+import { PARKED_HAND, STAGE, letterAt } from './stage.js';
+import WhiteboardLayout from './WhiteboardLayout.jsx';
+import AlphabetBar from './AlphabetBar.jsx';
 import { ClearButton, Switch, ToolButton, ToolRail } from './Toolbar.jsx';
 import TileBar from './TileBar.jsx';
 import PicturesPanel from './PicturesPanel.jsx';
 import { pictureUrl } from './pictures.js';
-import VideoPanel from './VideoPanel.jsx';
 import { useVideoCall } from './useVideoCall.js';
-import { CopyButton, MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
+import { CopyButton, FocusButton, MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
 
 const SAVED = 'wb-tutor';
 const round4 = (n) => Math.round(n * 10000) / 10000;
@@ -35,7 +36,16 @@ export default function TutorRoom() {
   const [busy, setBusy] = useState(false);
   const [tip, setTip] = useState(null);
   const [selectedTileId, setSelectedTileId] = useState(null); // clicked, ready to change
-  const [sidePanel, setSidePanel] = useState('tiles'); // the side column's tab: letter tiles or pictures
+  const layout = useRef(null); // the shared layout: open a panel, focus mode
+  // Zoom and pan are each screen's own. This outlines what the student's screen shows, and
+  // 'Show my view to student' brings their screen to the part of the board shown here.
+  const [studentView, setStudentView] = useState(null);
+  const [showStudentView, setShowStudentView] = useState(true);
+  const myView = useRef(null);
+  // Picking a tile to change opens the tiles panel (on narrower screens, its sheet).
+  useEffect(() => {
+    if (selectedTileId) layout.current?.show('tiles');
+  }, [selectedTileId]);
   const stageApi = useRef(null);
   const [studentMarker, setStudentMarker] = useFrameState(null);
   const [myMarker, setMyMarker] = useFrameState(null);
@@ -58,6 +68,7 @@ export default function TutorRoom() {
       if (call.handle(msg)) return;
       if (msg.t === 'board') setStudentTools(Boolean(msg.tools));
       if (wb.handle(msg)) return;
+      if (msg.t === 'view') return setStudentView({ x: msg.x, y: msg.y, w: msg.w, h: msg.h });
       if (msg.t === 'room') {
         const saved = { code: msg.code, key: msg.key };
         sessionStorage.setItem(SAVED, JSON.stringify(saved));
@@ -173,34 +184,55 @@ export default function TutorRoom() {
   const markers = [studentMarker && { key: 'student', ...studentMarker }, myMarker && { key: 'me', ...myMarker }].filter(Boolean);
 
   return (
-    <div className='flex h-dvh flex-col bg-slate-200'>
-      <TopBar title='Alphabet Whiteboard'>
-        <div className='flex items-center gap-2'>
-          <span className='text-sm font-semibold text-slate-600'>Code</span>
-          <span className='rounded-lg bg-violet-600 px-3 py-1 font-mono text-2xl font-bold tracking-widest text-white'>
-            {room.code || '····'}
-          </span>
-          {room.code && <CopyButton text={`${window.location.origin}/whiteboard/${room.code}`} label='Copy student link' />}
-        </div>
-        {pill}
-        <Switch checked={studentTools} onChange={(on) => send({ t: 'tools', on })} label='Student tools' />
-        <Switch checked={wb.strip} onChange={wb.setStrip} label='Alphabet strip' />
-        <p className='min-w-[9rem] text-base text-slate-700'>
-          {activity || (
+    <WhiteboardLayout
+      header={
+        <TopBar
+          title='Alphabet Whiteboard'
+          menu={
             <>
-              Pointing at <strong className='inline-block w-8 text-center text-2xl text-violet-700'>{pointing || '–'}</strong>
+              {room.code && <CopyButton text={`${window.location.origin}/whiteboard/${room.code}`} label='Copy student link' />}
+              <Switch checked={studentTools} onChange={(on) => send({ t: 'tools', on })} label='Student tools' />
+              <Switch checked={wb.strip} onChange={wb.setStrip} label='Alphabet strip' />
+              <p className='min-w-[9rem] text-base text-slate-700'>
+                {activity || (
+                  <>
+                    Pointing at <strong className='inline-block w-8 text-center text-2xl text-violet-700'>{pointing || '–'}</strong>
+                  </>
+                )}
+              </p>
+              <Switch checked={showStudentView} onChange={setShowStudentView} label='Student’s view' />
+              <button
+                type='button'
+                disabled={!studentHere}
+                onClick={() => myView.current && send({ t: 'focus', ...myView.current })}
+                className='inline-flex items-center gap-1.5 rounded-full border border-violet-300 px-3 py-1 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-40'
+              >
+                <Crosshair className='h-4 w-4' aria-hidden='true' />
+                Show my view to student
+              </button>
+              <FocusButton onClick={() => layout.current?.setFocus(true)} />
             </>
-          )}
-        </p>
-        <button
-          type='button'
-          onClick={endSession}
-          className='rounded-full bg-slate-800 px-4 py-2 text-sm font-bold text-white hover:bg-slate-900'
+          }
+          end={
+            <button
+              type='button'
+              onClick={endSession}
+              className='shrink-0 rounded-full bg-slate-800 px-3 py-2 text-sm font-bold text-white hover:bg-slate-900 sm:px-4'
+            >
+              End session
+            </button>
+          }
         >
-          End session
-        </button>
-      </TopBar>
-      <div className='flex min-h-0 flex-1 items-start justify-center gap-2 p-2 sm:gap-4 sm:p-4'>
+          <div className='flex shrink-0 items-center gap-2'>
+            <span className='hidden text-sm font-semibold text-slate-600 sm:inline'>Code</span>
+            <span className='rounded-lg bg-violet-600 px-3 py-1 font-mono text-2xl font-bold tracking-widest text-white'>
+              {room.code || '····'}
+            </span>
+          </div>
+          {pill}
+        </TopBar>
+      }
+      tools={
         <ToolRail label='Your tools'>
           <ToolButton icon={MousePointer2} label='Watch' pressed={tool === 'none'} onClick={() => chooseTool('none')} />
           <ToolButton
@@ -226,7 +258,9 @@ export default function TutorRoom() {
           <ToolButton icon={Undo2} label='Undo' disabled={!wb.canUndo} onClick={wb.undo} />
           <ClearButton icon={Trash2} onClear={() => send({ t: 'clear' })} />
         </ToolRail>
-        <main className='relative h-full min-w-0 rounded-2xl bg-slate-100 shadow' style={BOARD_SHAPE}>
+      }
+      board={
+        <>
           <Stage
             board={wb.board}
             me='tutor'
@@ -243,6 +277,10 @@ export default function TutorRoom() {
             canEditPieces
             canDeletePieces
             canDuplicatePieces
+            onView={(rect) => {
+              myView.current = rect;
+            }}
+            peerView={showStudentView && studentHere ? studentView : null}
             stageApi={stageApi}
             letters={{ student: pointing, tutor: myMarker?.kind === 'hand' ? myMarker.letter : null }}
             tool={tool}
@@ -257,44 +295,40 @@ export default function TutorRoom() {
             <StageNotice>Your student opens myprivateteacher.com/whiteboard and types {room.code}</StageNotice>
           )}
           {studentHere && tip && <StageNotice>{tip}</StageNotice>}
-        </main>
-        <div className='-m-1 flex max-h-full w-64 shrink-0 flex-col gap-2 overflow-y-auto p-1 sm:gap-4 xl:w-72'>
-          <VideoPanel call={call} peerName='your student' fill />
-          <div role='tablist' aria-label='Things for the board' className='grid grid-cols-2 gap-1 rounded-2xl bg-white p-1 shadow'>
-            {[
-              ['tiles', 'Letter tiles'],
-              ['pictures', 'Pictures'],
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                type='button'
-                role='tab'
-                aria-selected={sidePanel === id}
-                onClick={() => setSidePanel(id)}
-                className={`rounded-xl px-3 py-2 text-sm font-bold ${sidePanel === id ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-violet-50'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className={sidePanel === 'tiles' ? '' : 'hidden'}>
-          <TileBar
-            count={wb.tiles.length}
-            selected={wb.tiles.find((t) => t.id === selectedTileId) || null}
-            onAdd={wb.addTiles}
-            onEdit={(text) => {
-              const ok = wb.editTile(selectedTileId, text);
-              if (ok) setSelectedTileId(null);
-              return ok;
-            }}
-            onCancelEdit={() => setSelectedTileId(null)}
-            onReset={wb.resetTiles}
-            onClear={wb.clearTiles}
-            boxes={wb.boxes}
-            onBoxes={wb.setBoxes}
-          />
-          </div>
-          <div className={sidePanel === 'pictures' ? '' : 'hidden'}>
+        </>
+      }
+      call={call}
+      peerName='your student'
+      alphabet={wb.strip ? <AlphabetBar letters={{ student: pointing, tutor: myMarker?.kind === 'hand' ? myMarker.letter : null }} onPoint={(p) => share(p, 'hand')} /> : null}
+      controls={layout}
+      panels={[
+        {
+          id: 'tiles',
+          label: 'Letter tiles',
+          icon: Type,
+          content: (
+            <TileBar
+              count={wb.tiles.length}
+              selected={wb.tiles.find((t) => t.id === selectedTileId) || null}
+              onAdd={wb.addTiles}
+              onEdit={(text) => {
+                const ok = wb.editTile(selectedTileId, text);
+                if (ok) setSelectedTileId(null);
+                return ok;
+              }}
+              onCancelEdit={() => setSelectedTileId(null)}
+              onReset={wb.resetTiles}
+              onClear={wb.clearTiles}
+              boxes={wb.boxes}
+              onBoxes={wb.setBoxes}
+            />
+          ),
+        },
+        {
+          id: 'pictures',
+          label: 'Pictures',
+          icon: ImageIcon,
+          content: (
             <PicturesPanel
               pictures={wb.pictures}
               srcFor={(id) => pictureUrl(room.code, id)}
@@ -307,11 +341,12 @@ export default function TutorRoom() {
               onReset={wb.offerActions.reset}
               onPlace={wb.pieceActions.add}
               stageApi={stageApi}
-              onShow={() => setSidePanel('pictures')}
+              onShow={() => layout.current?.show('pictures')}
+              onPlaced={() => layout.current?.closeSheet()}
             />
-          </div>
-        </div>
-      </div>
-    </div>
+          ),
+        },
+      ]}
+    />
   );
 }

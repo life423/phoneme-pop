@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { Eraser, Hand as HandIcon, Pencil, Undo2 } from 'lucide-react';
+import { Eraser, Hand as HandIcon, Image as ImageIcon, Pencil, Undo2 } from 'lucide-react';
 import { navigate } from '../router.jsx';
 import { useRealtime } from './useRealtime.js';
 import { useFrameState, useWhiteboard } from './useWhiteboard.js';
 import Stage from './Stage.jsx';
 import { INK } from './board.js';
-import { BOARD_SHAPE, PARKED_HAND, STAGE, letterAt } from './stage.js';
+import { PARKED_HAND, STAGE, letterAt } from './stage.js';
+import WhiteboardLayout from './WhiteboardLayout.jsx';
+import AlphabetBar from './AlphabetBar.jsx';
 import { ToolButton, ToolRail } from './Toolbar.jsx';
-import VideoPanel from './VideoPanel.jsx';
 import PicturesPanel from './PicturesPanel.jsx';
 import { pictureUrl } from './pictures.js';
 import { useVideoCall } from './useVideoCall.js';
-import { MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
+import { FocusButton, MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
 
 const round4 = (n) => Math.round(n * 10000) / 10000;
 const PARKED = { kind: 'hand', by: 'student', x: PARKED_HAND.x, y: PARKED_HAND.y, letter: null };
@@ -31,6 +32,20 @@ export default function StudentRoom({ code }) {
   const [toolsOn, setToolsOn] = useState(false);
   const [tool, setTool] = useState('hand');
   const stageApi = useRef(null);
+  const layout = useRef(null); // the shared layout: open a panel, focus mode
+  // Zoom and pan are this screen's own. The tutor sees which part of the board it shows, and
+  // can bring it to the part they're teaching (follow tutor).
+  const [follow, setFollow] = useState(null);
+  const lastView = useRef(null);
+  const viewTimer = useRef(null);
+  const sendView = (rect) => {
+    lastView.current = rect;
+    if (viewTimer.current) return;
+    viewTimer.current = setTimeout(() => {
+      viewTimer.current = null;
+      sendRef.current?.({ t: 'view', ...lastView.current });
+    }, 200);
+  };
   const [notice, setNotice] = useState(null);
   const [touched, setTouched] = useState(false);
   const [myMarker, setMyMarker] = useFrameState(null);
@@ -59,6 +74,7 @@ export default function StudentRoom({ code }) {
       if (call.handle(msg)) return;
       if (msg.t === 'board') applyTools(Boolean(msg.tools), false);
       if (wb.handle(msg)) return;
+      if (msg.t === 'focus') return setFollow({ x: msg.x, y: msg.y, w: msg.w, h: msg.h, n: Date.now() });
       if (msg.t === 'tools') {
         applyTools(Boolean(msg.on), true);
       } else if (msg.t === 'room') {
@@ -111,6 +127,11 @@ export default function StudentRoom({ code }) {
   sendRef.current = send;
 
   useEffect(() => () => clearTimeout(retryTimer.current), []);
+  useEffect(() => () => clearTimeout(viewTimer.current), []);
+  // When the tutor arrives (or comes back), tell them what this screen shows.
+  useEffect(() => {
+    if (tutorHere && lastView.current) sendRef.current?.({ t: 'view', ...lastView.current });
+  }, [tutorHere]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -166,31 +187,37 @@ export default function StudentRoom({ code }) {
   const markers = [tutorMarker && { key: 'tutor', ...tutorMarker }, myMarker && { key: 'me', ...myMarker }].filter(Boolean);
 
   return (
-    <div className='flex h-dvh flex-col bg-slate-200'>
-      <TopBar title='Alphabet Whiteboard'>
-        <span className='text-base font-semibold text-slate-700'>Room {code}</span>
-        {pill}
-        <button
-          type='button'
-          onClick={leave}
-          className='rounded-full bg-slate-800 px-4 py-2 text-sm font-bold text-white hover:bg-slate-900'
+    <WhiteboardLayout
+      header={
+        <TopBar
+          title='Alphabet Whiteboard'
+          menu={<FocusButton onClick={() => layout.current?.setFocus(true)} />}
+          end={
+            <button
+              type='button'
+              onClick={leave}
+              className='shrink-0 rounded-full bg-slate-800 px-4 py-2 text-sm font-bold text-white hover:bg-slate-900'
+            >
+              Leave
+            </button>
+          }
         >
-          Leave
-        </button>
-      </TopBar>
-      <p className='hidden bg-amber-100 px-4 py-2 text-center text-sm font-semibold text-amber-900 portrait:max-lg:block'>
-        Turn your tablet sideways for bigger letters.
-      </p>
-      <div className='flex min-h-0 flex-1 items-start justify-center gap-2 p-2 sm:gap-4 sm:p-4'>
-        {toolsOn && (
+          <span className='shrink-0 text-base font-semibold text-slate-700'>Room {code}</span>
+          {pill}
+        </TopBar>
+      }
+      tools={
+        toolsOn && (
           <ToolRail label='Your tools'>
             <ToolButton icon={HandIcon} label='Hand' pressed={tool === 'hand'} onClick={() => chooseTool('hand')} />
             <ToolButton icon={Pencil} label='Pen' swatch={INK.student} pressed={tool === 'pen'} onClick={() => chooseTool('pen')} />
             <ToolButton icon={Eraser} label='Eraser' pressed={tool === 'eraser'} onClick={() => chooseTool('eraser')} />
             <ToolButton icon={Undo2} label='Undo' disabled={!wb.canUndo} onClick={wb.undo} />
           </ToolRail>
-        )}
-        <main className='relative h-full min-w-0 rounded-2xl bg-slate-100 shadow' style={BOARD_SHAPE}>
+        )
+      }
+      board={
+        <>
           <Stage
             board={wb.board}
             me='student'
@@ -203,6 +230,8 @@ export default function StudentRoom({ code }) {
             pictureSrc={(id) => pictureUrl(code, id)}
             pieceActions={wb.pieceActions}
             canEditPieces={toolsOn}
+            onView={sendView}
+            focus={follow}
             stageApi={stageApi}
             letters={{
               student: myMarker?.kind === 'hand' ? myMarker.letter : null,
@@ -222,20 +251,30 @@ export default function StudentRoom({ code }) {
           {phase === 'in' && !notice && tutorHere && !touched && !toolsOn && (
             <StageNotice>Move the hand to a letter ✋</StageNotice>
           )}
-        </main>
-        {/* The same side column as the tutor's: video on top, the tutor's pictures below. */}
-        <div className='-m-1 flex max-h-full w-64 shrink-0 flex-col gap-2 overflow-y-auto p-1 sm:gap-4 xl:w-72'>
-          <VideoPanel call={call} peerName='your tutor' fill />
-          <PicturesPanel
-            pictures={wb.pictures}
-            offers={wb.offers}
-            canTake={toolsOn}
-            srcFor={(id) => pictureUrl(code, id)}
-            onPlace={wb.pieceActions.add}
-            stageApi={stageApi}
-          />
-        </div>
-      </div>
-    </div>
+        </>
+      }
+      call={call}
+      peerName='your tutor'
+      alphabet={wb.strip ? <AlphabetBar letters={{ student: myMarker?.kind === 'hand' ? myMarker.letter : null, tutor: tutorMarker?.kind === 'hand' ? tutorMarker.letter : null }} onPoint={(p) => share(p, 'hand')} /> : null}
+      controls={layout}
+      panels={[
+        {
+          id: 'pictures',
+          label: 'Pictures',
+          icon: ImageIcon,
+          content: (
+            <PicturesPanel
+              pictures={wb.pictures}
+              offers={wb.offers}
+              canTake={toolsOn}
+              srcFor={(id) => pictureUrl(code, id)}
+              onPlace={wb.pieceActions.add}
+              stageApi={stageApi}
+              onPlaced={() => layout.current?.closeSheet()}
+            />
+          ),
+        },
+      ]}
+    />
   );
 }
