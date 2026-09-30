@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BoxSelect, Gift, Plus, Wand2 } from 'lucide-react';
+import { ArrowLeft, BoxSelect, Gift, Image as ImageIcon, Plus, Wand2 } from 'lucide-react';
 import { regionAt } from './regions.js';
 import { pictureRegions } from './pictures.js';
 import { MAX_PICTURES, startingWidth } from '../../shared/pieces.js';
@@ -82,6 +82,8 @@ export default function PicturesPanel({
   srcFor,
   canAdd = false,
   onAddFile,
+  library = [],
+  onAddFromLibrary,
   onClear,
   onPlace,
   onPlaced,
@@ -135,6 +137,17 @@ export default function PicturesPanel({
     setBusy(true);
     setNote(null);
     const result = await onAddFile(file);
+    setBusy(false);
+    if (result?.error) setNote(result.error);
+    else if (result?.id) setOpenId(result.id);
+  };
+
+  // A card from the picture library joins the session and opens, ready for Magic Select.
+  const addCard = async (card) => {
+    if (!canAdd || !onAddFromLibrary) return;
+    setBusy(true);
+    setNote(null);
+    const result = await onAddFromLibrary(card);
     setBusy(false);
     if (result?.error) setNote(result.error);
     else if (result?.id) setOpenId(result.id);
@@ -410,6 +423,33 @@ export default function PicturesPanel({
         <p role='status' className='text-xs font-semibold text-amber-700'>
           {note}
         </p>
+      )}
+      {canAdd && library.length > 0 && (
+        <div className='flex flex-col gap-1.5'>
+          <h3 className='text-xs font-bold uppercase tracking-wide text-slate-500'>Library</h3>
+          <ul className='flex flex-col gap-1.5'>
+            {library.map((card) => (
+              <li key={card.id}>
+                <button
+                  type='button'
+                  disabled={busy || pictures.length >= MAX_PICTURES}
+                  onClick={() => addCard(card)}
+                  className='flex w-full items-center gap-3 rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-left hover:border-violet-400 disabled:opacity-50'
+                >
+                  <ImageIcon className='h-5 w-5 shrink-0 text-violet-600' aria-hidden='true' />
+                  <span className='min-w-0 flex-1'>
+                    <span className='block truncate text-sm font-bold text-slate-800'>{card.title}</span>
+                    <span className='block truncate text-xs text-slate-500'>
+                      {[card.collection, (card.sounds || []).map((s) => `/${s}/`).join(' ')].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                  <Plus className='h-4 w-4 shrink-0 text-violet-600' aria-hidden='true' />
+                </button>
+              </li>
+            ))}
+          </ul>
+          {shown.length > 0 && <h3 className='mt-1 text-xs font-bold uppercase tracking-wide text-slate-500'>In this session</h3>}
+        </div>
       )}
       {shown.length === 0 ? (
         <p className='text-sm text-slate-500'>

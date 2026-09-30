@@ -10,11 +10,15 @@
     "server": "node --watch server/index.js",
     "start": "node server/index.js",
     "smoke": "node server/smoke.js",
-    "shots": "node scripts/responsive-shots.mjs shots"
+    "shots": "node scripts/responsive-shots.mjs shots",
+    "import-library": "node --env-file=.env scripts/import-library.mjs"
   },
   "dependencies": {
+    "@azure/identity": "^4.13.3",
+    "@azure/storage-blob": "^12.34.0",
     "compression": "^1.8.2",
     "express": "^5.2.1",
+    "mongodb": "^6.21.0",
     "ws": "^8.22.0"
   },
   "devDependencies": {

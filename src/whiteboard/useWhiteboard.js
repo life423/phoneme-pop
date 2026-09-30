@@ -24,6 +24,19 @@ async function sendPicture(room, id, { blob, w, h }) {
   }
 }
 
+// Copies a card from the picture library into the room as one of its pictures. True once it's there.
+async function sendFromLibrary(room, id, cardId) {
+  try {
+    const res = await fetch(`${pictureUrl(room.code, id)}/from-library/${cardId}`, {
+      method: 'POST',
+      headers: { 'X-Room-Key': room.key },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // State that updates at most once per animation frame, for pointer-driven things.
 export function useFrameState(initial) {
   const [value, setValue] = useState(initial);
@@ -265,6 +278,16 @@ export function useWhiteboard(role, send) {
     [],
   );
 
+  // Tutor only: a card from the picture library, into this session.
+  const addLibraryCard = useCallback(async (card, room) => {
+    if (!room?.code || !room?.key) return { error: 'Not connected yet. Try again in a moment.' };
+    if (pictures.current.size >= MAX_PICTURES) return { error: `Up to ${MAX_PICTURES} pictures per session.` };
+    const id = newPictureId();
+    if (!(await sendFromLibrary(room, id, card.id))) return { error: 'That card couldn’t be added. Try again.' };
+    kept.current.set(id, { library: card.id });
+    return { id };
+  }, []);
+
   const clearPictures = useCallback(() => {
     kept.current.clear();
     sendRef.current({ t: 'pieces:clear' });
@@ -299,7 +322,11 @@ export function useWhiteboard(role, send) {
   const restore = useCallback(
     async (tools, room) => {
       // Pictures go back up first, so the pieces that show them are accepted.
-      if (room) for (const [id, shrunk] of kept.current) await sendPicture(room, id, shrunk);
+      if (room) {
+        for (const [id, copy] of kept.current) {
+          await (copy.library ? sendFromLibrary(room, id, copy.library) : sendPicture(room, id, copy));
+        }
+      }
       for (const offer of offers.current.values()) sendRef.current({ t: 'rs-offer', offer });
       for (const s of board.strokes) sendRef.current({ t: 'rs', id: s.id, by: s.by, tool: s.tool, pts: s.pts });
       const ordered = [...tiles.current.values()].sort((a, b) => a.z - b.z);
@@ -447,6 +474,7 @@ export function useWhiteboard(role, send) {
     offers: [...offers.current.values()],
     offerActions,
     addPicture,
+    addLibraryCard,
     clearPictures,
     addTiles,
     editTile,

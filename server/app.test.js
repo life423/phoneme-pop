@@ -126,3 +126,57 @@ describe('whiteboard picture routes', () => {
     expect((await request('GET', `/api/rooms/1234/pictures/${'b'.repeat(32)}`)).status).toBe(404);
   });
 });
+
+describe('the picture library routes', () => {
+  const key = 'k'.repeat(32);
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(100)]);
+  const added = [];
+  const pictures = {
+    add: (upload) => {
+      added.push(upload);
+      return { status: 201 };
+    },
+    get: () => null,
+    isTutor: (code, k) => code === '1234' && k === key,
+  };
+  const library = {
+    list: async () => [{ id: 'c1', title: 'Lip Biter', sounds: ['f', 'v'], collection: 'Mouth Pictures', order: 1, w: 10, h: 10 }],
+    image: async (id) => (id === 'c1' ? { bytes: jpeg, w: 10, h: 10 } : null),
+  };
+  let libServer;
+  let libPort;
+  beforeAll(async () => {
+    libServer = http.createServer(createApp({ pictures, library }));
+    await new Promise((resolve) => libServer.listen(0, resolve));
+    libPort = libServer.address().port;
+  });
+  afterAll(() => libServer.close());
+
+  const call = (method, path, headers = {}) =>
+    new Promise((resolve, reject) => {
+      const req = http.request({ port: libPort, method, path, headers: { host: 'localhost', ...headers } }, (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  const id = 'a'.repeat(32);
+
+  it('shows the library only to the tutor of a live room', async () => {
+    expect((await call('GET', '/api/rooms/1234/library')).status).toBe(403);
+    expect((await call('GET', '/api/rooms/1234/library', { 'x-room-key': 'nope' })).status).toBe(403);
+    const ok = await call('GET', '/api/rooms/1234/library', { 'x-room-key': key });
+    expect(ok.status).toBe(200);
+    expect(JSON.parse(ok.body).cards[0].title).toBe('Lip Biter');
+  });
+
+  it('copies a card into the room as one of its pictures, for its tutor only', async () => {
+    expect((await call('POST', `/api/rooms/1234/pictures/${id}/from-library/c1`)).status).toBe(403);
+    expect((await call('POST', `/api/rooms/1234/pictures/${id}/from-library/nope`, { 'x-room-key': key })).status).toBe(404);
+    expect((await call('POST', `/api/rooms/1234/pictures/${id}/from-library/c1`, { 'x-room-key': key })).status).toBe(201);
+    expect(added.at(-1)).toMatchObject({ code: '1234', id, w: 10, h: 10, type: 'image/jpeg' });
+    expect(added.at(-1).bytes.equals(jpeg)).toBe(true);
+  });
+});
