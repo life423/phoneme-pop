@@ -32,6 +32,19 @@ export default function StudentRoom({ code }) {
   const [tool, setTool] = useState('hand');
   const stageApi = useRef(null);
   const layout = useRef(null); // the shared layout: open a panel, focus mode
+  // Zoom and pan are this screen's own. The tutor sees which part of the board it shows, and
+  // can bring it to the part they're teaching (follow tutor).
+  const [follow, setFollow] = useState(null);
+  const lastView = useRef(null);
+  const viewTimer = useRef(null);
+  const sendView = (rect) => {
+    lastView.current = rect;
+    if (viewTimer.current) return;
+    viewTimer.current = setTimeout(() => {
+      viewTimer.current = null;
+      sendRef.current?.({ t: 'view', ...lastView.current });
+    }, 200);
+  };
   const [notice, setNotice] = useState(null);
   const [touched, setTouched] = useState(false);
   const [myMarker, setMyMarker] = useFrameState(null);
@@ -60,6 +73,7 @@ export default function StudentRoom({ code }) {
       if (call.handle(msg)) return;
       if (msg.t === 'board') applyTools(Boolean(msg.tools), false);
       if (wb.handle(msg)) return;
+      if (msg.t === 'focus') return setFollow({ x: msg.x, y: msg.y, w: msg.w, h: msg.h, n: Date.now() });
       if (msg.t === 'tools') {
         applyTools(Boolean(msg.on), true);
       } else if (msg.t === 'room') {
@@ -112,6 +126,11 @@ export default function StudentRoom({ code }) {
   sendRef.current = send;
 
   useEffect(() => () => clearTimeout(retryTimer.current), []);
+  useEffect(() => () => clearTimeout(viewTimer.current), []);
+  // When the tutor arrives (or comes back), tell them what this screen shows.
+  useEffect(() => {
+    if (tutorHere && lastView.current) sendRef.current?.({ t: 'view', ...lastView.current });
+  }, [tutorHere]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -215,6 +234,8 @@ export default function StudentRoom({ code }) {
             pictureSrc={(id) => pictureUrl(code, id)}
             pieceActions={wb.pieceActions}
             canEditPieces={toolsOn}
+            onView={sendView}
+            focus={follow}
             stageApi={stageApi}
             letters={{
               student: myMarker?.kind === 'hand' ? myMarker.letter : null,

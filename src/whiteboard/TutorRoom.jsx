@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Eraser, Hand as HandIcon, Image as ImageIcon, MousePointer2, Pencil, Trash2, Type, Undo2 } from 'lucide-react';
+import { Crosshair, Eraser, Hand as HandIcon, Image as ImageIcon, MousePointer2, Pencil, Trash2, Type, Undo2 } from 'lucide-react';
 import { navigate } from '../router.jsx';
 import { useRealtime } from './useRealtime.js';
 import { useFrameState, useWhiteboard } from './useWhiteboard.js';
@@ -36,6 +36,11 @@ export default function TutorRoom() {
   const [tip, setTip] = useState(null);
   const [selectedTileId, setSelectedTileId] = useState(null); // clicked, ready to change
   const layout = useRef(null); // the shared layout: open a panel, focus mode
+  // Zoom and pan are each screen's own. This outlines what the student's screen shows, and
+  // 'Show my view to student' brings their screen to the part of the board shown here.
+  const [studentView, setStudentView] = useState(null);
+  const [showStudentView, setShowStudentView] = useState(true);
+  const myView = useRef(null);
   // Picking a tile to change opens the tiles panel (on narrower screens, its sheet).
   useEffect(() => {
     if (selectedTileId) layout.current?.show('tiles');
@@ -62,6 +67,7 @@ export default function TutorRoom() {
       if (call.handle(msg)) return;
       if (msg.t === 'board') setStudentTools(Boolean(msg.tools));
       if (wb.handle(msg)) return;
+      if (msg.t === 'view') return setStudentView({ x: msg.x, y: msg.y, w: msg.w, h: msg.h });
       if (msg.t === 'room') {
         const saved = { code: msg.code, key: msg.key };
         sessionStorage.setItem(SAVED, JSON.stringify(saved));
@@ -193,6 +199,16 @@ export default function TutorRoom() {
                   </>
                 )}
               </p>
+              <Switch checked={showStudentView} onChange={setShowStudentView} label='Student’s view' />
+              <button
+                type='button'
+                disabled={!studentHere}
+                onClick={() => myView.current && send({ t: 'focus', ...myView.current })}
+                className='inline-flex items-center gap-1.5 rounded-full border border-violet-300 px-3 py-1 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-40'
+              >
+                <Crosshair className='h-4 w-4' aria-hidden='true' />
+                Show my view to student
+              </button>
               <FocusButton onClick={() => layout.current?.setFocus(true)} />
             </>
           }
@@ -260,6 +276,10 @@ export default function TutorRoom() {
             canEditPieces
             canDeletePieces
             canDuplicatePieces
+            onView={(rect) => {
+              myView.current = rect;
+            }}
+            peerView={showStudentView && studentHere ? studentView : null}
             stageApi={stageApi}
             letters={{ student: pointing, tutor: myMarker?.kind === 'hand' ? myMarker.letter : null }}
             tool={tool}
