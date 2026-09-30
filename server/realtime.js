@@ -1,17 +1,43 @@
 import { WebSocketServer } from 'ws';
 import { randomBytes, randomInt } from 'node:crypto';
 
-// Live rooms for the Alphabet Whiteboard: one tutor and one student per room,
-// with the student's pointer relayed to the tutor. Rooms live in memory, so the
-// app has to run as a single replica.
+// Live rooms for the Alphabet Whiteboard: one tutor and one student per room.
+// Pointers go both ways. The board is an ordered list of strokes (pen ink or
+// eraser paths) that the server keeps and both screens replay. Rooms live in
+// memory, so the app has to run as a single replica.
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const STAGE = { width: 1600, height: 1000 };
 const REPLACED = 4000; // close code: the same person connected again somewhere else
+const MODES = new Set(['hand', 'pen', 'eraser', 'none']);
+const TOOLS = new Set(['pen', 'eraser']);
+const MAX_STROKES = 2000;
+const MAX_STROKE_NUMBERS = 8000; // 4,000 points
+const MAX_CHUNK_NUMBERS = 256;
+const POINTER_PER_SECOND = 60;
+const DRAW_PER_SECOND = 120;
 
 const isCode = (value) =>
   typeof value === 'string' && value.length === 4 && [...value].every((c) => c >= '0' && c <= '9');
 const isKey = (value) => typeof value === 'string' && value.length === 32;
+const isStrokeId = (value) =>
+  typeof value === 'string' &&
+  value.length > 0 &&
+  value.length <= 40 &&
+  [...value].every((c) => (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '-');
 const clamp01 = (n) => Math.min(1, Math.max(0, n));
+const clampTo = (n, max) => Math.round(Math.min(max, Math.max(0, n)) * 10) / 10;
+
+// Validates a flat [x, y, x, y, ...] list of stage coordinates and clamps it to the stage.
+function cleanPoints(pts) {
+  if (!Array.isArray(pts) || pts.length === 0 || pts.length % 2 !== 0) return null;
+  const out = [];
+  for (let i = 0; i < pts.length; i += 2) {
+    if (!Number.isFinite(pts[i]) || !Number.isFinite(pts[i + 1])) return null;
+    out.push(clampTo(pts[i], STAGE.width), clampTo(pts[i + 1], STAGE.height));
+  }
+  return out;
+}
 
 // Azure's ingress appends the real client address as the last X-Forwarded-For entry.
 function clientIp(req) {
@@ -33,10 +59,44 @@ export function attachRealtime(server, options = {}) {
 
   const rooms = new Map();
   const joinAttempts = new Map();
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
   const send = (ws, msg) => {
     if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
+  };
+
+  const roleOf = (ws) => {
+    const room = ws.room;
+    if (!room) return null;
+    if (room.tutor === ws) return 'tutor';
+    if (room.student === ws) return 'student';
+    return null;
+  };
+  const otherSide = (room, role) => (role === 'tutor' ? room.student : room.tutor);
+  const canDraw = (room, role) => role === 'tutor' || (role === 'student' && room.tools);
+
+  // A per-second budget for each kind of message on a socket.
+  const allow = (ws, kind, perSecond) => {
+    const now = Date.now();
+    const bucket = ws.budget[kind] || (ws.budget[kind] = { start: now, count: 0 });
+    if (now - bucket.start >= 1000) {
+      bucket.start = now;
+      bucket.count = 0;
+    }
+    bucket.count += 1;
+    return bucket.count <= perSecond;
+  };
+
+  const boardMessage = (room) => ({
+    t: 'board',
+    tools: room.tools,
+    strokes: room.strokes.map(({ id, by, tool, pts, seq }) => ({ id, by, tool, pts, seq })),
+  });
+
+  const broadcastBoard = (room) => {
+    const msg = boardMessage(room);
+    send(room.tutor, msg);
+    send(room.student, msg);
   };
 
   const sendPresence = (room) => {
@@ -45,12 +105,22 @@ export function attachRealtime(server, options = {}) {
     send(room.student, msg);
   };
 
+  // Ends whatever stroke this socket was drawing and tells the other person.
+  const finishStroke = (ws, room) => {
+    const stroke = ws.openStroke && room.strokeById.get(ws.openStroke);
+    ws.openStroke = null;
+    if (!stroke || stroke.done) return;
+    stroke.done = true;
+    send(otherSide(room, stroke.by), { t: 'e', id: stroke.id });
+  };
+
   const closeRoom = (room, reason) => {
     clearTimeout(room.closeTimer);
-    rooms.delete(room.code);
+    if (rooms.get(room.code) === room) rooms.delete(room.code);
     for (const ws of [room.tutor, room.student]) {
       if (!ws) continue;
       ws.room = null;
+      ws.openStroke = null;
       send(ws, { t: 'closed', reason });
     }
   };
@@ -58,6 +128,7 @@ export function attachRealtime(server, options = {}) {
   const leaveRoom = (ws) => {
     const room = ws.room;
     if (!room) return;
+    finishStroke(ws, room);
     ws.room = null;
     if (room.tutor === ws) {
       room.tutor = null;
@@ -69,8 +140,9 @@ export function attachRealtime(server, options = {}) {
     sendPresence(room);
   };
 
-  const replace = (oldWs, newWs) => {
+  const replace = (room, oldWs, newWs) => {
     if (!oldWs || oldWs === newWs) return;
+    finishStroke(oldWs, room);
     oldWs.room = null;
     oldWs.close(REPLACED, 'replaced');
   };
@@ -96,6 +168,7 @@ export function attachRealtime(server, options = {}) {
     create(ws, msg) {
       let room = isCode(msg.code) ? rooms.get(msg.code) : undefined;
       if (room && room.key !== msg.key) room = undefined;
+      let fresh = false;
       if (!room) {
         const reuse = isCode(msg.code) && isKey(msg.key) && !rooms.has(msg.code);
         const code = reuse ? msg.code : newCode();
@@ -110,16 +183,24 @@ export function attachRealtime(server, options = {}) {
           student: null,
           studentKey: null,
           closeTimer: null,
+          tools: false,
+          strokes: [],
+          strokeById: new Map(),
+          seq: 0,
+          // After a restart the tutor's browser hands back its copy of the board.
+          restoring: reuse,
         };
         rooms.set(code, room);
+        fresh = true;
       }
       if (ws.room !== room) leaveRoom(ws);
       clearTimeout(room.closeTimer);
-      replace(room.tutor, ws);
+      replace(room, room.tutor, ws);
       room.tutor = ws;
       ws.room = room;
-      send(ws, { t: 'room', role: 'tutor', code: room.code, key: room.key });
+      send(ws, { t: 'room', role: 'tutor', code: room.code, key: room.key, fresh });
       sendPresence(room);
+      if (!fresh) send(ws, boardMessage(room));
     },
 
     // A student joins with their tutor's code. Their key lets them take back
@@ -131,28 +212,126 @@ export function attachRealtime(server, options = {}) {
       const returning = isKey(msg.key) && msg.key === room.studentKey;
       if (room.student && room.student !== ws && !returning) return send(ws, { t: 'error', reason: 'room-full' });
       if (ws.room !== room) leaveRoom(ws);
-      replace(room.student, ws);
+      replace(room, room.student, ws);
       room.student = ws;
       room.studentKey = returning ? msg.key : randomBytes(16).toString('hex');
       ws.room = room;
       send(ws, { t: 'room', role: 'student', code: room.code, key: room.studentKey });
       sendPresence(room);
+      send(ws, boardMessage(room));
     },
 
-    // The student's pointer: 0-1 stage coordinates plus the letter under the fingertip.
+    // Pointers go to the other person: 0-1 stage coordinates, the tool in hand,
+    // and for the pointing hand, the letter under the fingertip.
     p(ws, msg) {
-      const room = ws.room;
-      if (!room || room.student !== ws) return;
-      const now = Date.now();
-      if (now - ws.windowStart >= 1000) {
-        ws.windowStart = now;
-        ws.pointerCount = 0;
-      }
-      ws.pointerCount += 1;
-      if (ws.pointerCount > 60) return;
+      const role = roleOf(ws);
+      if (!role || !allow(ws, 'pointer', POINTER_PER_SECOND)) return;
+      const to = otherSide(ws.room, role);
+      const mode = MODES.has(msg.m) ? msg.m : 'hand';
+      if (mode === 'none') return send(to, { t: 'p', m: 'none' });
       if (!Number.isFinite(msg.x) || !Number.isFinite(msg.y)) return;
-      const letter = typeof msg.l === 'string' && msg.l.length === 1 && LETTERS.includes(msg.l) ? msg.l : null;
-      send(room.tutor, { t: 'p', x: clamp01(msg.x), y: clamp01(msg.y), l: letter });
+      const letter =
+        mode === 'hand' && typeof msg.l === 'string' && msg.l.length === 1 && LETTERS.includes(msg.l) ? msg.l : null;
+      send(to, { t: 'p', x: clamp01(msg.x), y: clamp01(msg.y), l: letter, m: mode });
+    },
+
+    // Stroke start. The student may only draw while the tutor has their tools on.
+    s(ws, msg) {
+      const role = roleOf(ws);
+      if (!role || !canDraw(ws.room, role) || !allow(ws, 'draw', DRAW_PER_SECOND)) return;
+      const room = ws.room;
+      if (!isStrokeId(msg.id) || room.strokeById.has(msg.id) || !TOOLS.has(msg.tool)) return;
+      if (room.strokes.length >= MAX_STROKES) return send(ws, { t: 'error', reason: 'board-full' });
+      const start = cleanPoints([msg.x, msg.y]);
+      if (!start) return;
+      finishStroke(ws, room);
+      room.restoring = false;
+      room.seq += 1;
+      const stroke = { id: msg.id, by: role, tool: msg.tool, pts: start, seq: room.seq, done: false };
+      room.strokes.push(stroke);
+      room.strokeById.set(stroke.id, stroke);
+      ws.openStroke = stroke.id;
+      send(ws, { t: 'ack', id: stroke.id, seq: stroke.seq });
+      send(otherSide(room, role), { t: 's', id: stroke.id, by: role, tool: stroke.tool, x: start[0], y: start[1], seq: stroke.seq });
+    },
+
+    // More points for the stroke this socket is drawing.
+    m(ws, msg) {
+      const role = roleOf(ws);
+      if (!role || !allow(ws, 'draw', DRAW_PER_SECOND)) return;
+      const room = ws.room;
+      const stroke = room.strokeById.get(msg.id);
+      if (!stroke || stroke.done || ws.openStroke !== stroke.id) return;
+      if (!Array.isArray(msg.pts) || msg.pts.length > MAX_CHUNK_NUMBERS) return;
+      const pts = cleanPoints(msg.pts);
+      if (!pts || stroke.pts.length + pts.length > MAX_STROKE_NUMBERS) return;
+      for (const n of pts) stroke.pts.push(n);
+      send(otherSide(room, role), { t: 'm', id: stroke.id, pts });
+    },
+
+    e(ws, msg) {
+      if (ws.room && isStrokeId(msg.id) && ws.openStroke === msg.id) finishStroke(ws, ws.room);
+    },
+
+    // Takes back the sender's own most recent stroke, never the other person's.
+    undo(ws) {
+      const role = roleOf(ws);
+      if (!role || !canDraw(ws.room, role) || !allow(ws, 'draw', DRAW_PER_SECOND)) return;
+      const room = ws.room;
+      for (let i = room.strokes.length - 1; i >= 0; i -= 1) {
+        const stroke = room.strokes[i];
+        if (stroke.by !== role) continue;
+        room.strokes.splice(i, 1);
+        room.strokeById.delete(stroke.id);
+        if (ws.openStroke === stroke.id) ws.openStroke = null;
+        send(room.tutor, { t: 'undo', id: stroke.id });
+        send(room.student, { t: 'undo', id: stroke.id });
+        return;
+      }
+    },
+
+    // Tutor only: wipe the board for both.
+    clear(ws) {
+      const room = ws.room;
+      if (!room || room.tutor !== ws) return;
+      room.strokes = [];
+      room.strokeById.clear();
+      for (const w of [room.tutor, room.student]) if (w) w.openStroke = null;
+      broadcastBoard(room);
+    },
+
+    // Tutor only: turn the student's toolbar on or off.
+    tools(ws, msg) {
+      const room = ws.room;
+      if (!room || room.tutor !== ws) return;
+      room.tools = Boolean(msg.on);
+      if (!room.tools && room.student) finishStroke(room.student, room);
+      send(room.tutor, { t: 'tools', on: room.tools });
+      send(room.student, { t: 'tools', on: room.tools });
+    },
+
+    // Tutor only, right after a restart: one stroke of the board they kept.
+    rs(ws, msg) {
+      const room = ws.room;
+      if (!room || room.tutor !== ws || !room.restoring || room.strokes.length >= MAX_STROKES) return;
+      if (!isStrokeId(msg.id) || room.strokeById.has(msg.id) || !TOOLS.has(msg.tool)) return;
+      if (msg.by !== 'tutor' && msg.by !== 'student') return;
+      if (!Array.isArray(msg.pts) || msg.pts.length > MAX_STROKE_NUMBERS) return;
+      const pts = cleanPoints(msg.pts);
+      if (!pts) return;
+      room.seq += 1;
+      const stroke = { id: msg.id, by: msg.by, tool: msg.tool, pts, seq: room.seq, done: true };
+      room.strokes.push(stroke);
+      room.strokeById.set(stroke.id, stroke);
+    },
+
+    // Tutor only: the restore is complete, so everyone gets the board.
+    restored(ws, msg) {
+      const room = ws.room;
+      if (!room || room.tutor !== ws || !room.restoring) return;
+      room.restoring = false;
+      room.tools = Boolean(msg.tools);
+      broadcastBoard(room);
     },
 
     end(ws) {
@@ -168,8 +347,8 @@ export function attachRealtime(server, options = {}) {
     ws.ip = clientIp(req);
     ws.isAlive = true;
     ws.room = null;
-    ws.windowStart = 0;
-    ws.pointerCount = 0;
+    ws.openStroke = null;
+    ws.budget = {};
     ws.on('pong', () => {
       ws.isAlive = true;
     });

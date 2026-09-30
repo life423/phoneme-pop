@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
+import { Eraser, Hand as HandIcon, Pencil, Undo2 } from 'lucide-react';
 import { navigate } from '../router.jsx';
 import { useRealtime } from './useRealtime.js';
+import { useFrameState, useWhiteboard } from './useWhiteboard.js';
 import Stage from './Stage.jsx';
-import { STAGE } from './stage.js';
+import { INK } from './board.js';
+import { STAGE, letterAt } from './stage.js';
+import { ToolButton, ToolRail } from './Toolbar.jsx';
 import { MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
 
-const SEND_EVERY_MS = 33; // about 30 updates a second; the newest position always wins
-const round = (n) => Math.round(n * 10000) / 10000;
+const round4 = (n) => Math.round(n * 10000) / 10000;
 
 const ENDINGS = {
   'no-room': ['We can’t find that room', 'Check the 4-digit code with your tutor and try again.'],
@@ -18,25 +21,38 @@ const ENDINGS = {
 
 export default function StudentRoom({ code }) {
   const storageKey = `wb-student-${code}`;
-  const [hand, setHand] = useState(null);
-  const [letter, setLetter] = useState(null);
   const [phase, setPhase] = useState('joining'); // joining | in | rejoining | a key of ENDINGS
   const [tutorHere, setTutorHere] = useState(true);
+  const [toolsOn, setToolsOn] = useState(false);
+  const [tool, setTool] = useState('hand');
+  const [notice, setNotice] = useState(null);
+  const [myMarker, setMyMarker] = useFrameState(null);
+  const [tutorMarker, setTutorMarker] = useFrameState(null);
   const keyRef = useRef(sessionStorage.getItem(storageKey));
   const joined = useRef(false);
   const retries = useRef(0);
   const retryTimer = useRef(null);
-  const sendTimer = useRef(null);
-  const pending = useRef(null);
-  const lastSent = useRef(0);
+  const lastPoint = useRef(null);
   const sendRef = useRef(() => {});
 
+  const wb = useWhiteboard('student', (msg) => sendRef.current(msg));
   const joinMessage = () => ({ t: 'join', code, key: keyRef.current || undefined });
+
+  // The tutor decides whether the toolbar is available.
+  const applyTools = (on, announce) => {
+    setToolsOn(on);
+    if (!on) setTool('hand');
+    if (announce) setNotice(on ? 'Your tutor turned on your tools ✏️' : 'Your tutor turned off the tools');
+  };
 
   const { status, send } = useRealtime({
     hello: joinMessage,
     onMessage: (msg) => {
-      if (msg.t === 'room') {
+      if (msg.t === 'board') applyTools(Boolean(msg.tools), false);
+      if (wb.handle(msg)) return;
+      if (msg.t === 'tools') {
+        applyTools(Boolean(msg.on), true);
+      } else if (msg.t === 'room') {
         keyRef.current = msg.key;
         sessionStorage.setItem(storageKey, msg.key);
         joined.current = true;
@@ -44,6 +60,11 @@ export default function StudentRoom({ code }) {
         setPhase('in');
       } else if (msg.t === 'presence') {
         setTutorHere(msg.tutor);
+        if (!msg.tutor) setTutorMarker(null);
+      } else if (msg.t === 'p') {
+        setTutorMarker(
+          msg.m === 'none' ? null : { kind: msg.m, by: 'tutor', x: msg.x * STAGE.width, y: msg.y * STAGE.height, smooth: true },
+        );
       } else if (msg.t === 'closed') {
         sessionStorage.removeItem(storageKey);
         setPhase('closed');
@@ -62,25 +83,38 @@ export default function StudentRoom({ code }) {
   });
   sendRef.current = send;
 
-  useEffect(
-    () => () => {
-      clearTimeout(retryTimer.current);
-      clearTimeout(sendTimer.current);
-    },
-    [],
-  );
+  useEffect(() => () => clearTimeout(retryTimer.current), []);
 
-  const point = ({ x, y, letter: under }) => {
-    setHand({ x, y });
-    setLetter(under);
-    pending.current = { t: 'p', x: round(x / STAGE.width), y: round(y / STAGE.height), l: under };
-    if (sendTimer.current) return;
-    const wait = Math.max(0, SEND_EVERY_MS - (performance.now() - lastSent.current));
-    sendTimer.current = setTimeout(() => {
-      sendTimer.current = null;
-      lastSent.current = performance.now();
-      send(pending.current);
-    }, wait);
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(null), 3000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    if (!toolsOn) return undefined;
+    const onKey = (event) => {
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        wb.undo();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toolsOn, wb.undo]);
+
+  // Shows this pointer locally and shares it with the tutor.
+  const share = (p, mode) => {
+    lastPoint.current = p;
+    const letter = mode === 'hand' ? p.letter : null;
+    setMyMarker({ kind: mode, by: 'student', x: p.x, y: p.y, letter });
+    wb.sendPointer({ t: 'p', x: round4(p.x / STAGE.width), y: round4(p.y / STAGE.height), l: letter, m: mode });
+  };
+
+  const chooseTool = (next) => {
+    setTool(next);
+    const p = lastPoint.current;
+    if (p) share({ ...p, letter: letterAt(p.x, p.y) }, next);
   };
 
   const ending = ENDINGS[status === 'replaced' ? 'replaced' : phase];
@@ -101,6 +135,8 @@ export default function StudentRoom({ code }) {
     pill = <StatusPill tone='wait'>Waiting for your tutor</StatusPill>;
   }
 
+  const markers = [tutorMarker && { key: 'tutor', ...tutorMarker }, myMarker && { key: 'me', ...myMarker }].filter(Boolean);
+
   return (
     <div className='flex h-dvh flex-col bg-slate-200'>
       <TopBar title='Alphabet Whiteboard'>
@@ -117,11 +153,35 @@ export default function StudentRoom({ code }) {
       <p className='hidden bg-amber-100 px-4 py-2 text-center text-sm font-semibold text-amber-900 portrait:max-lg:block'>
         Turn your tablet sideways for bigger letters.
       </p>
-      <main className='relative min-h-0 flex-1 p-2 sm:p-4'>
-        <Stage hand={hand} activeLetter={letter} onPoint={point} />
-        {phase === 'in' && !tutorHere && <StageNotice>Waiting for your tutor…</StageNotice>}
-        {phase === 'in' && tutorHere && !hand && <StageNotice>Move the hand to a letter ✋</StageNotice>}
-      </main>
+      <div className='flex min-h-0 flex-1 gap-2 p-2 sm:gap-3 sm:p-4'>
+        {toolsOn && (
+          <ToolRail label='Your tools'>
+            <ToolButton icon={HandIcon} label='Hand' pressed={tool === 'hand'} onClick={() => chooseTool('hand')} />
+            <ToolButton icon={Pencil} label='Pen' swatch={INK.student} pressed={tool === 'pen'} onClick={() => chooseTool('pen')} />
+            <ToolButton icon={Eraser} label='Eraser' pressed={tool === 'eraser'} onClick={() => chooseTool('eraser')} />
+            <ToolButton icon={Undo2} label='Undo' disabled={!wb.canUndo} onClick={wb.undo} />
+          </ToolRail>
+        )}
+        <main className='relative min-h-0 flex-1'>
+          <Stage
+            board={wb.board}
+            activeLetter={myMarker?.letter ?? null}
+            tool={tool}
+            markers={markers}
+            onPoint={(p) => share(p, tool)}
+            onLeave={() => {
+              setMyMarker(null);
+              wb.sendPointer({ t: 'p', m: 'none' });
+            }}
+            onStroke={{ start: (p) => wb.stroke.start(tool, p), move: wb.stroke.move, end: wb.stroke.end }}
+          />
+          {phase === 'in' && notice && <StageNotice>{notice}</StageNotice>}
+          {phase === 'in' && !notice && !tutorHere && <StageNotice>Waiting for your tutor…</StageNotice>}
+          {phase === 'in' && !notice && tutorHere && !myMarker && !toolsOn && (
+            <StageNotice>Move the hand to a letter ✋</StageNotice>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

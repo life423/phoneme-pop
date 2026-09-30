@@ -1,5 +1,5 @@
 // Opens a tutor and a student connection against a running site and checks that
-// a pointer makes the trip. Usage: node server/smoke.js https://myprivateteacher.com
+// a pointer and a pen stroke make the trip. Usage: node server/smoke.js https://myprivateteacher.com
 import WebSocket from 'ws';
 
 const site = new URL(process.argv[2] || 'http://localhost:8080');
@@ -25,20 +25,34 @@ const next = (ws, type) =>
     ws.on('message', onMessage);
   });
 
+const say = (ws, msg) => ws.send(JSON.stringify(msg));
+
 const tutor = await open();
-tutor.send(JSON.stringify({ t: 'create' }));
-const { code } = await next(tutor, 'room');
+const created = next(tutor, 'room');
+say(tutor, { t: 'create' });
+const { code } = await created;
 
 const student = await open();
-student.send(JSON.stringify({ t: 'join', code }));
-await next(student, 'room');
+const joined = next(student, 'room');
+say(student, { t: 'join', code });
+await joined;
 
-const relayed = next(tutor, 'p');
-student.send(JSON.stringify({ t: 'p', x: 0.5, y: 0.1, l: 'M' }));
-const pointer = await relayed;
+const pointed = next(tutor, 'p');
+say(student, { t: 'p', x: 0.5, y: 0.1, l: 'M', m: 'hand' });
+const pointer = await pointed;
 if (pointer.l !== 'M' || pointer.x !== 0.5) throw new Error(`pointer arrived as ${JSON.stringify(pointer)}`);
 
-tutor.send(JSON.stringify({ t: 'end' }));
-console.log(`Realtime OK: room ${code} relayed a pointer from student to tutor over ${url}`);
+const toolsOn = next(student, 'tools');
+say(tutor, { t: 'tools', on: true });
+await toolsOn;
+
+const drawn = next(tutor, 's');
+say(student, { t: 's', id: 'smoke', tool: 'pen', x: 400, y: 500 });
+const stroke = await drawn;
+if (stroke.by !== 'student' || stroke.tool !== 'pen') throw new Error(`stroke arrived as ${JSON.stringify(stroke)}`);
+say(student, { t: 'e', id: 'smoke' });
+
+say(tutor, { t: 'end' });
+console.log(`Realtime OK: room ${code} relayed a pointer and a pen stroke over ${url}`);
 tutor.close();
 student.close();
