@@ -1,11 +1,38 @@
 import { useRef } from 'react';
+import Hand from './Hand.jsx';
 import { CELL_WIDTH, LETTERS, STRIP } from './stage.js';
 
 // The alphabet on phones: two rows of 13, pinned above the zoomable board and sized to the
 // screen, so every letter is always in view. The board's own one-row strip is still there
 // (the tutor's screen shows it); pointing at a letter here puts the hand on that letter
-// there, and the other person's pointing lights up here.
+// there, and the other person's pointing lights up here. The same glove as on the board sits on
+// each pointed-at letter, at the same size next to the letters, so the hand moves up into the bar.
 const ROWS = [LETTERS.slice(0, 13), LETTERS.slice(13)];
+
+// The glove drawn over a letter, fingertip on the letter's centre. Its picture runs from x -50
+// to 56 and y 0 to 152 (with its shadow); on the board a letter is CELL_WIDTH wide, so here the
+// glove is that many letter-widths wide.
+const GLOVE = { left: -50, width: 106, height: 152 };
+const gloveWidth = (GLOVE.width / CELL_WIDTH) * 100;
+const GLOVE_STYLE = {
+  width: `${gloveWidth}%`,
+  left: `${50 - (-GLOVE.left / GLOVE.width) * gloveWidth}%`,
+  top: '50%',
+  aspectRatio: `${GLOVE.width} / ${GLOVE.height}`,
+};
+
+function Glove({ by }) {
+  return (
+    <svg
+      viewBox={`${GLOVE.left} 0 ${GLOVE.width} ${GLOVE.height}`}
+      className={`hand-${by} pointer-events-none absolute z-10 overflow-visible`}
+      style={GLOVE_STYLE}
+      aria-hidden='true'
+    >
+      <Hand x={0} y={0} by={by} />
+    </svg>
+  );
+}
 
 // Where a letter sits on the shared board's strip.
 export const letterPoint = (letter) => {
@@ -58,9 +85,11 @@ export default function AlphabetBar({ letters = {}, onPoint }) {
             <span
               key={letter}
               data-letter={letter}
-              className={`flex h-9 items-center justify-center rounded-lg border text-lg font-extrabold sm:h-12 sm:rounded-xl sm:text-2xl ${tone(letter, letters)}`}
+              className={`relative flex h-9 items-center justify-center rounded-lg border text-lg font-extrabold sm:h-12 sm:rounded-xl sm:text-2xl ${tone(letter, letters)}`}
             >
               {letter}
+              {letter === letters.tutor && <Glove by='tutor' />}
+              {letter === letters.student && <Glove by='student' />}
             </span>
           ))}
         </div>

@@ -726,7 +726,12 @@ export default function Stage({
             )}
           </g>
         )}
-        {markers.map(({ key, ...marker }) => (
+        {/* With the alphabet in its own bar (phones, upright tablets), a hand pointing above the part
+            of the board on screen shows in the bar, on its letter, rather than peeking out under it.
+            Scrolled up to the board's own strip, the hand shows there as usual. */}
+        {markers
+          .filter((m) => !(fillTop && seen && m.y < seen.y))
+          .map(({ key, ...marker }) => (
           <Marker
             key={key}
             {...marker}
