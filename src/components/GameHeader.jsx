@@ -1,4 +1,5 @@
-import { ChevronDown, ChevronUp, Trophy } from 'lucide-react';
+import { ChevronDown, ChevronUp, Home, Trophy } from 'lucide-react';
+import { Link } from '../router.jsx';
 
 function Stat({ label, value, tone, children }) {
   return (
@@ -17,7 +18,10 @@ export default function GameHeader({ showInstructions, onToggleInstructions, lev
   return (
     <header className='bg-white shadow-md px-3 py-2 sm:px-4 sm:py-3'>
       <div className='max-w-7xl mx-auto flex items-center justify-between gap-3'>
-        <div className='flex items-center gap-1 sm:gap-4'>
+        <div className='flex items-center gap-1 sm:gap-3'>
+          <Link to='/' aria-label='All activities' className='rounded-full p-2 text-purple-700 hover:bg-purple-100'>
+            <Home className='w-5 h-5' aria-hidden='true' />
+          </Link>
           <h1 className='text-xl md:text-2xl font-bold text-purple-700'>Phoneme Pop!</h1>
           <button
             type='button'

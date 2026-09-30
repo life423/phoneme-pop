@@ -1,16 +1,21 @@
-# Build the static site (tests must pass first)
+# Build the client, then run every test (the web server tests need the build)
 FROM node:24-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-RUN npm test && npm run build
+RUN npm run build && npm test
 
-# Serve it
-FROM nginx:stable-alpine
+# One small Node server: static files plus the whiteboard's /ws endpoint.
+# It binds port 80 as root, then drops to the unprivileged node user.
+FROM node:24-alpine
+WORKDIR /app
+ENV NODE_ENV=production PORT=80
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY server ./server
+COPY --from=build /app/dist ./dist
 ARG APP_VERSION=dev
-COPY nginx.conf /etc/nginx/nginx.conf
-COPY --from=build /app/dist /usr/share/nginx/html
-RUN echo "$APP_VERSION" > /usr/share/nginx/html/version.txt
+RUN echo "$APP_VERSION" > dist/version.txt
 EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "server/index.js"]
