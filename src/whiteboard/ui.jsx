@@ -1,13 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy, Maximize2, MoreHorizontal, X } from 'lucide-react';
 import { Link } from '../router.jsx';
 
 // The header. `children` are the essentials, always shown. `menu` holds the session controls:
-// in the bar on wide screens, behind a settings button on narrower ones. `end` (End session,
-// Leave) sits at the far right, and on phones moves into the menu to leave room for the title.
+// in the bar whenever everything fits on one line, behind a menu button when it doesn't. That's
+// measured from the bar itself, not guessed from the screen size. `end` (End session, Leave) sits
+// at the far right; on phones it moves into the menu to leave room for the title.
 export function TopBar({ back, title, children, menu, end }) {
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const ref = useRef(null);
+  const needed = useRef(0); // how wide the bar must be to show everything on one line
+  const room = Boolean(menu || end);
   useEffect(() => {
     if (!open) return undefined;
     const close = (event) => {
@@ -16,41 +20,60 @@ export function TopBar({ back, title, children, menu, end }) {
     document.addEventListener('pointerdown', close);
     return () => document.removeEventListener('pointerdown', close);
   }, [open]);
-  const room = Boolean(menu || end);
+  useLayoutEffect(() => {
+    if (!menu) return undefined;
+    const bar = ref.current;
+    const check = () =>
+      setCollapsed((was) => {
+        if (!was && bar.scrollWidth > bar.clientWidth + 1) {
+          needed.current = bar.scrollWidth;
+          return true;
+        }
+        if (was && bar.clientWidth >= needed.current) return false;
+        return was;
+      });
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(bar);
+    for (const part of bar.children) observer.observe(part);
+    return () => observer.disconnect();
+  }, [Boolean(menu)]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!collapsed) setOpen(false);
+  }, [collapsed]);
   return (
     <header
       ref={ref}
-      className={`relative z-30 flex items-center gap-x-3 gap-y-2 bg-white px-3 py-2 shadow-sm sm:px-4 ${room ? '2xl:flex-wrap 2xl:gap-x-4' : 'flex-wrap gap-x-4'}`}
+      className={`relative z-30 flex items-center gap-x-3 gap-y-2 bg-white px-3 py-2 shadow-sm sm:px-4 ${room ? 'flex-nowrap sm:gap-x-4' : 'flex-wrap gap-x-4'}`}
     >
       {back && (
         <Link to={back} aria-label='Back' className='rounded-full p-2 text-violet-700 hover:bg-violet-100'>
           <ArrowLeft className='h-5 w-5' aria-hidden='true' />
         </Link>
       )}
-      <h1 className={`text-lg font-bold text-violet-800 sm:text-xl ${room ? 'min-w-0 truncate max-sm:text-base' : 'shrink-0'}`}>{title}</h1>
+      <h1 className={`text-lg font-bold text-violet-800 sm:text-xl ${room && collapsed ? 'min-w-0 truncate max-sm:text-base' : 'shrink-0'}`}>{title}</h1>
       <div
-        className={`flex items-center justify-end gap-x-2 gap-y-2 sm:gap-x-4 ${
-          room ? 'ml-auto shrink-0 2xl:min-w-0 2xl:flex-1 2xl:shrink 2xl:flex-wrap' : 'min-w-0 flex-1 flex-wrap'
-        }`}
+        className={`flex items-center justify-end gap-x-2 gap-y-2 ${room ? 'ml-auto shrink-0 sm:gap-x-3' : 'min-w-0 flex-1 flex-wrap sm:gap-x-4'}`}
       >
         {children}
-        {menu && <div className='hidden items-center gap-x-4 gap-y-2 2xl:flex 2xl:flex-wrap'>{menu}</div>}
-        {menu && (
+        {/* In the bar, controls marked hide-inline show just their icon (the menu shows their words). */}
+        {menu && !collapsed && <div className='flex shrink-0 items-center gap-x-3 whitespace-nowrap [&_.hide-inline]:hidden'>{menu}</div>}
+        {menu && collapsed && (
           <button
             type='button'
             aria-expanded={open}
             aria-label='Session menu'
             title='Session menu'
             onClick={() => setOpen((was) => !was)}
-            className={`rounded-full p-2 2xl:hidden ${open ? 'bg-violet-100 text-violet-800' : 'text-slate-700 hover:bg-slate-100'}`}
+            className={`rounded-full p-2 ${open ? 'bg-violet-100 text-violet-800' : 'text-slate-700 hover:bg-slate-100'}`}
           >
             <MoreHorizontal className='h-5 w-5' aria-hidden='true' />
           </button>
         )}
-        {end && <div className='max-sm:hidden'>{end}</div>}
+        {end && <div className={`shrink-0 ${collapsed ? 'max-sm:hidden' : ''}`}>{end}</div>}
       </div>
-      {menu && open && (
-        <div className='absolute right-2 top-full z-40 mt-2 flex w-72 max-w-[calc(100vw-1rem)] flex-col items-start gap-3 rounded-2xl bg-white p-4 shadow-xl ring-1 ring-slate-200 2xl:hidden'>
+      {menu && collapsed && open && (
+        <div className='absolute right-2 top-full z-40 mt-2 flex w-72 max-w-[calc(100vw-1rem)] flex-col items-start gap-3 rounded-2xl bg-white p-4 shadow-xl ring-1 ring-slate-200'>
           {menu}
           {end && <div className='sm:hidden'>{end}</div>}
         </div>
@@ -85,10 +108,12 @@ export function FocusButton({ onClick }) {
     <button
       type='button'
       onClick={onClick}
-      className='inline-flex items-center gap-1.5 rounded-full border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 hover:bg-slate-50'
+      aria-label='Focus mode'
+      title='Focus mode: just the board'
+      className='inline-flex items-center gap-1.5 rounded-full border border-slate-300 px-2.5 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50'
     >
       <Maximize2 className='h-4 w-4' aria-hidden='true' />
-      Focus mode
+      <span className='hide-inline'>Focus mode</span>
     </button>
   );
 }
