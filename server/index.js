@@ -5,6 +5,7 @@ import express from 'express';
 import compression from 'compression';
 import { attachRealtime } from './realtime.js';
 import { MAX_PICTURE_BYTES } from '../shared/pieces.js';
+import { connectLibrary } from './library.js';
 
 const PORT = Number(process.env.PORT) || 8080;
 const CANONICAL_HOST = process.env.CANONICAL_HOST || 'myprivateteacher.com';
@@ -35,7 +36,7 @@ export function imageType(buf) {
 }
 
 // `pictures` connects the picture routes to the live rooms (see start()).
-export function createApp({ pictures } = {}) {
+export function createApp({ pictures, library } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', true);
@@ -79,6 +80,36 @@ export function createApp({ pictures } = {}) {
     });
   }
 
+  // The picture library, for the tutor of a live room: what's in it, and copying a card into
+  // the room, where it becomes one of the session's pictures like any other.
+  if (library && pictures) {
+    const tutorOnly = (req, res, next) =>
+      pictures.isTutor(req.params.code, req.get('x-room-key')) ? next() : res.sendStatus(403);
+    app.get('/api/rooms/:code/library', tutorOnly, async (req, res) => {
+      try {
+        res.set('Cache-Control', 'no-store').json({ cards: await library.list() });
+      } catch (error) {
+        console.warn(`Library list failed: ${error.message}`);
+        res.status(503).json({ cards: [] });
+      }
+    });
+    app.post('/api/rooms/:code/pictures/:id/from-library/:card', tutorOnly, async (req, res) => {
+      try {
+        const card = await library.image(req.params.card);
+        if (!card) return res.sendStatus(404);
+        if (card.bytes.length > MAX_PICTURE_BYTES) return res.sendStatus(413);
+        const type = imageType(card.bytes);
+        if (!type) return res.sendStatus(415);
+        const key = req.get('x-room-key');
+        const { status } = pictures.add({ code: req.params.code, key, id: req.params.id, w: card.w, h: card.h, type, bytes: card.bytes });
+        res.status(status).json({ ok: status < 300 });
+      } catch (error) {
+        console.warn(`Library copy failed: ${error.message}`);
+        res.sendStatus(503);
+      }
+    });
+  }
+
   // Hashed build assets cache forever; a missing one is a 404, not the app shell.
   app.use(
     '/assets',
@@ -105,8 +136,11 @@ export function start(port = PORT) {
   const pictures = {
     add: (upload) => realtime.pictures.add(upload),
     get: (code, id) => realtime.pictures.get(code, id),
+    isTutor: (code, key) => realtime.pictures.isTutor(code, key),
   };
-  const server = http.createServer(createApp({ pictures }));
+  const library = connectLibrary();
+  if (library) console.log('Picture library connected');
+  const server = http.createServer(createApp({ pictures, library }));
   realtime = attachRealtime(server, {
     allowedOrigins: ALLOWED_ORIGINS,
     turn: { host: process.env.TURN_HOST, secret: process.env.TURN_SECRET, tls: process.env.TURN_TLS === 'true' },
@@ -127,6 +161,7 @@ export function start(port = PORT) {
 
   const shutdown = () => {
     realtime.close();
+    library?.close();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 5000).unref();
   };

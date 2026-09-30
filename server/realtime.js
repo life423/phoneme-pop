@@ -823,6 +823,11 @@ export function attachRealtime(server, options = {}) {
       const room = isCode(code) ? rooms.get(code) : undefined;
       return (room && isPictureId(id) && room.pictures.get(id)) || null;
     },
+    // Whether this is the tutor of a live room (their room key matches).
+    isTutor(code, key) {
+      const room = isCode(code) ? rooms.get(code) : undefined;
+      return Boolean(room && isKey(key) && room.key === key);
+    },
   };
 
   return { rooms, close, pictures };

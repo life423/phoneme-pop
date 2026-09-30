@@ -47,6 +47,21 @@ export default function TutorRoom() {
     if (selectedTileId) layout.current?.show('tiles');
   }, [selectedTileId]);
   const stageApi = useRef(null);
+  // The picture library, which this tutor's live room can draw from.
+  const [library, setLibrary] = useState([]);
+  useEffect(() => {
+    if (!room.code || !room.key) return undefined;
+    let live = true;
+    fetch(`/api/rooms/${room.code}/library`, { headers: { 'X-Room-Key': room.key } })
+      .then((res) => (res.ok ? res.json() : { cards: [] }))
+      .then((data) => {
+        if (live) setLibrary(Array.isArray(data.cards) ? data.cards : []);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [room]);
   const [studentMarker, setStudentMarker] = useFrameState(null);
   const [myMarker, setMyMarker] = useFrameState(null);
   const roomRef = useRef(room);
@@ -335,6 +350,8 @@ export default function TutorRoom() {
               canAdd
               onAddFile={(file) => wb.addPicture(file, room)}
               onClear={wb.clearPictures}
+              library={library}
+              onAddFromLibrary={(card) => wb.addLibraryCard(card, room)}
               offers={wb.offers}
               onOffer={wb.offerActions.give}
               onWithdraw={wb.offerActions.withdraw}
