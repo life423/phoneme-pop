@@ -221,21 +221,18 @@ export default function StudentRoom({ code }) {
             <StageNotice>Move the hand to a letter ✋</StageNotice>
           )}
         </main>
-        {toolsOn || wb.pictures.length > 0 ? (
-          <div className='-m-1 flex max-h-full w-64 shrink-0 flex-col gap-2 overflow-y-auto p-1 sm:gap-4 xl:w-72'>
-            <VideoPanel call={call} peerName='your tutor' fill />
-            <PicturesPanel
-              pictures={wb.pictures}
-              offers={wb.offers}
-              canTake={toolsOn}
-              srcFor={(id) => pictureUrl(code, id)}
-              onPlace={wb.pieceActions.add}
-              stageApi={stageApi}
-            />
-          </div>
-        ) : (
-          <VideoPanel call={call} peerName='your tutor' />
-        )}
+        {/* The same side column as the tutor's: video on top, the tutor's pictures below. */}
+        <div className='-m-1 flex max-h-full w-64 shrink-0 flex-col gap-2 overflow-y-auto p-1 sm:gap-4 xl:w-72'>
+          <VideoPanel call={call} peerName='your tutor' fill />
+          <PicturesPanel
+            pictures={wb.pictures}
+            offers={wb.offers}
+            canTake={toolsOn}
+            srcFor={(id) => pictureUrl(code, id)}
+            onPlace={wb.pieceActions.add}
+            stageApi={stageApi}
+          />
+        </div>
       </div>
     </div>
   );
