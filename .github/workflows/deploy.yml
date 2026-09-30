@@ -2,7 +2,8 @@ name: Test and deploy
 
 # Every pull request and push to main runs the tests. Pushes to main also build
 # the image, push it to Docker Hub tagged with the commit, deploy it to the
-# phoneme-pop Container App, and confirm the site is serving that commit.
+# phoneme-pop Container App, and confirm the site and the whiteboard's realtime
+# connection are working on that commit.
 on:
   push:
     branches: [main]
@@ -29,8 +30,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm test
       - run: npm run build
+      - run: npm test
 
   deploy:
     needs: test
@@ -69,14 +70,15 @@ jobs:
           tenant-id: ${{ secrets.PHONEMEPOP_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.PHONEMEPOP_AZURE_SUBSCRIPTION_ID }}
 
-      # Authenticated pulls, so scaling up from zero never hits Docker Hub's anonymous limits.
+      # Whiteboard rooms live in memory, so the app runs as exactly one replica
+      # (which also ends cold starts). Pulls use the Docker Hub credentials.
       - name: Deploy the new image
         env:
           REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           az containerapp registry set -n "$APP_NAME" -g "$RESOURCE_GROUP" --server docker.io --username "$REGISTRY_USERNAME" --password "$REGISTRY_PASSWORD" --output none
-          az containerapp update -n "$APP_NAME" -g "$RESOURCE_GROUP" --image "$IMAGE:$GITHUB_SHA" --output none
+          az containerapp update -n "$APP_NAME" -g "$RESOURCE_GROUP" --image "$IMAGE:$GITHUB_SHA" --min-replicas 1 --max-replicas 1 --cpu 0.25 --memory 0.5Gi --output none
 
       # The old container can keep answering for a while, so wait for this exact commit.
       - name: Check the new version is live
@@ -90,3 +92,13 @@ jobs:
           done
           echo "::error::$SITE_URL is not serving $GITHUB_SHA after 5 minutes"
           exit 1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --omit=dev
+
+      - name: Check the whiteboard's realtime connection
+        run: node server/smoke.js "$SITE_URL"
