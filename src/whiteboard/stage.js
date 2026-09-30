@@ -1,6 +1,8 @@
 // Both screens draw the same fixed 1600 x 1000 stage, scaled to fit, so a point
 // on the tutor's monitor is the same point on the student's tablet.
 export const STAGE = { width: 1600, height: 1000 };
+// The board's shape for CSS: it keeps 16:10 and grows as large as the screen allows.
+export const BOARD_SHAPE = { aspectRatio: `${STAGE.width} / ${STAGE.height}` };
 export const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 export const STRIP = { x: 24, y: 24, width: 1552, height: 132 };
 export const CELL_WIDTH = STRIP.width / LETTERS.length;

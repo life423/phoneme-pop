@@ -33,7 +33,7 @@ export function StatusPill({ tone, children }) {
 
 export function StageNotice({ children }) {
   return (
-    <div className='pointer-events-none absolute inset-x-0 bottom-8 flex justify-center px-4'>
+    <div className='pointer-events-none absolute inset-x-0 top-[22%] flex justify-center px-4'>
       <p className='rounded-full bg-slate-900/80 px-5 py-2 text-center text-base font-semibold text-white shadow-lg'>{children}</p>
     </div>
   );

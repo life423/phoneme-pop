@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BOX_COUNTS, MAX_TILES } from '../../shared/tiles.js';
 
-// The tutor's tile controls, under the board: add tiles, change a selected one,
+// The tutor's tile controls, a card in the side column: add tiles, change a selected one,
 // send them all home, clear them, and set the sound boxes.
 export default function TileBar({ count, selected, onAdd, onEdit, onCancelEdit, onReset, onClear, boxes, onBoxes }) {
   const [text, setText] = useState('');
@@ -43,8 +43,14 @@ export default function TileBar({ count, selected, onAdd, onEdit, onCancelEdit, 
   const pill = 'rounded-full px-3 py-2 text-sm font-semibold disabled:opacity-40';
 
   return (
-    <div className='flex flex-wrap items-center gap-2 rounded-2xl bg-white p-2 shadow'>
-      <form onSubmit={submit} className='flex min-w-[16rem] flex-1 items-center gap-2'>
+    <section aria-label='Letter tiles' className='flex flex-col gap-3 rounded-2xl bg-white p-3 shadow'>
+      <div className='flex items-center justify-between'>
+        <h2 className='text-sm font-bold text-slate-700'>Letter tiles</h2>
+        <span className='text-xs font-semibold text-slate-500'>
+          {count}/{MAX_TILES}
+        </span>
+      </div>
+      <form onSubmit={submit} className='flex items-center gap-2'>
         <label htmlFor='tile-input' className='sr-only'>
           {selected ? 'Change the selected tile' : 'Add tiles'}
         </label>
@@ -56,7 +62,7 @@ export default function TileBar({ count, selected, onAdd, onEdit, onCancelEdit, 
           onKeyDown={(event) => {
             if (event.key === 'Escape' && selected) onCancelEdit();
           }}
-          placeholder={selected ? `Change “${selected.text}” to…` : 'Add tiles, spaces between: sh i p'}
+          placeholder={selected ? `“${selected.text}” to…` : 'sh i p'}
           autoComplete='off'
           autoCapitalize='off'
           spellCheck={false}
@@ -65,51 +71,60 @@ export default function TileBar({ count, selected, onAdd, onEdit, onCancelEdit, 
         <button type='submit' className={`${pill} bg-violet-600 text-white hover:bg-violet-700`}>
           {selected ? 'Change' : 'Add'}
         </button>
-        {selected && (
-          <button type='button' onClick={onCancelEdit} className={`${pill} text-slate-600 hover:bg-slate-100`}>
-            Cancel
-          </button>
-        )}
       </form>
-      <button type='button' onClick={onReset} disabled={!count} className={`${pill} border border-slate-300 text-slate-700 hover:bg-slate-50`}>
-        Back to tray
-      </button>
-      <button
-        type='button'
-        disabled={!count}
-        onClick={() => {
-          if (!armed) return setArmed(true);
-          setArmed(false);
-          onClear();
-        }}
-        className={`${pill} ${armed ? 'bg-rose-600 text-white' : 'border border-slate-300 text-slate-700 hover:bg-slate-50'}`}
-      >
-        {armed ? 'Sure?' : 'Clear tiles'}
-      </button>
-      <span className='text-xs font-semibold text-slate-500'>
-        {count}/{MAX_TILES}
-      </span>
-      <div className='flex items-center gap-1' role='group' aria-label='Sound boxes'>
-        <span className='mr-1 text-sm font-semibold text-slate-600'>Sound boxes</span>
-        {BOX_COUNTS.map((n) => (
-          <button
-            key={n}
-            type='button'
-            aria-pressed={boxes === n}
-            onClick={() => onBoxes(n)}
-            className={`min-w-[2.25rem] rounded-lg px-2 py-1.5 text-sm font-bold ${
-              boxes === n ? 'bg-violet-600 text-white' : 'text-slate-700 hover:bg-violet-50'
-            }`}
-          >
-            {n === 0 ? 'Off' : n}
-          </button>
-        ))}
+      <p className='-mt-1 text-xs text-slate-500'>
+        {selected ? (
+          <>
+            Type the new letters, or{' '}
+            <button type='button' onClick={onCancelEdit} className='font-semibold text-violet-700 underline'>
+              cancel
+            </button>
+            .
+          </>
+        ) : (
+          'Spaces between tiles. Click a tile to change it.'
+        )}
+      </p>
+      <div className='grid grid-cols-2 gap-2'>
+        <button type='button' onClick={onReset} disabled={!count} className={`${pill} border border-slate-300 text-slate-700 hover:bg-slate-50`}>
+          Back to tray
+        </button>
+        <button
+          type='button'
+          disabled={!count}
+          onClick={() => {
+            if (!armed) return setArmed(true);
+            setArmed(false);
+            onClear();
+          }}
+          className={`${pill} ${armed ? 'bg-rose-600 text-white' : 'border border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+        >
+          {armed ? 'Sure?' : 'Clear tiles'}
+        </button>
+      </div>
+      <div>
+        <p id='sound-boxes-label' className='mb-1.5 text-xs font-semibold text-slate-600'>
+          Sound boxes
+        </p>
+        <div role='group' aria-labelledby='sound-boxes-label' className='grid grid-cols-5 gap-1'>
+          {BOX_COUNTS.map((n) => (
+            <button
+              key={n}
+              type='button'
+              aria-pressed={boxes === n}
+              onClick={() => onBoxes(n)}
+              className={`rounded-lg py-1.5 text-sm font-bold ${boxes === n ? 'bg-violet-600 text-white' : 'bg-slate-50 text-slate-700 hover:bg-violet-50'}`}
+            >
+              {n === 0 ? 'Off' : n}
+            </button>
+          ))}
+        </div>
       </div>
       {note && (
-        <span role='status' className='text-sm font-semibold text-amber-700'>
+        <p role='status' className='text-xs font-semibold text-amber-700'>
           {note}
-        </span>
+        </p>
       )}
-    </div>
+    </section>
   );
 }
