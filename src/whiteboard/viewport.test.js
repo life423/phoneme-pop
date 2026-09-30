@@ -12,6 +12,13 @@ describe('the whiteboard viewport', () => {
     expect(f).toMatchObject({ scale: 0.7, height: 700, top: 0, left: 0, width: 1120 });
   });
 
+  it('can start below the alphabet strip, for phones that show it in their own bar', () => {
+    const f = frame(393, 600, fillView(393, 600, 168));
+    expect(f.scale).toBeCloseTo(600 / 832);
+    expect(f.top).toBeCloseTo(-168 * f.scale);
+    expect(f.left).toBe(0);
+  });
+
   it('keeps the spot between the fingers under the fingers', () => {
     const f = frame(393, 700, viewAt(393, 700, 1.2, 800, 500, 200, 300));
     expect(f.left + 800 * 1.2).toBeCloseTo(200);

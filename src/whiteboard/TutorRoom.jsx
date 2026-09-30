@@ -7,6 +7,7 @@ import Stage from './Stage.jsx';
 import { INK } from './board.js';
 import { PARKED_HAND, STAGE, letterAt } from './stage.js';
 import WhiteboardLayout from './WhiteboardLayout.jsx';
+import AlphabetBar from './AlphabetBar.jsx';
 import { ClearButton, Switch, ToolButton, ToolRail } from './Toolbar.jsx';
 import TileBar from './TileBar.jsx';
 import PicturesPanel from './PicturesPanel.jsx';
@@ -298,6 +299,7 @@ export default function TutorRoom() {
       }
       call={call}
       peerName='your student'
+      alphabet={wb.strip ? <AlphabetBar letters={{ student: pointing, tutor: myMarker?.kind === 'hand' ? myMarker.letter : null }} onPoint={(p) => share(p, 'hand')} /> : null}
       controls={layout}
       panels={[
         {

@@ -4,7 +4,8 @@ import { BOARD_SHAPE } from './stage.js';
 import VideoPanel from './VideoPanel.jsx';
 import { BoardFit } from './viewport.js';
 
-const FILL = { fill: true };
+const FILL = { fill: true, bar: false };
+const FILL_WITH_BAR = { fill: true, bar: true };
 
 // The one layout the tutor's and the student's screens share.
 //  - Wide screens (1024px and up): tools | board | side column (video, then the panels).
@@ -205,7 +206,7 @@ function ExitFocus({ onClick }) {
   );
 }
 
-export default function WhiteboardLayout({ header, banner, tools, board, call, peerName, panels = [], controls }) {
+export default function WhiteboardLayout({ header, banner, tools, board, alphabet, call, peerName, panels = [], controls }) {
   const compact = useCompact();
   const [active, setActive] = useState(panels[0]?.id);
   const [sheet, setSheet] = useState('closed'); // the bottom sheet: closed, open or full
@@ -270,9 +271,10 @@ export default function WhiteboardLayout({ header, banner, tools, board, call, p
       {!focus && banner}
       <div className='relative min-h-0 flex-1 p-2'>
         {/* The floating tools and video live in the same space as the board, above the bottom bar. */}
-        <div className='relative h-full w-full'>
-          <main className='relative h-full w-full overflow-hidden rounded-2xl bg-slate-100 shadow'>
-            <BoardFit.Provider value={FILL}>{board}</BoardFit.Provider>
+        <div className='relative flex h-full w-full flex-col gap-2'>
+          {alphabet}
+          <main className='relative min-h-0 w-full flex-1 overflow-hidden rounded-2xl bg-slate-100 shadow'>
+            <BoardFit.Provider value={alphabet ? FILL_WITH_BAR : FILL}>{board}</BoardFit.Provider>
           </main>
           {tools && <FloatingTools tools={tools} focus={focus} />}
           <FloatingVideo>
