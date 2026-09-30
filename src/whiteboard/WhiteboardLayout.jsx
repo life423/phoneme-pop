@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Minimize2, Pencil, X } from 'lucide-react';
 import { BOARD_SHAPE } from './stage.js';
 import VideoPanel from './VideoPanel.jsx';
@@ -93,55 +93,82 @@ function FloatingVideo({ children }) {
 }
 
 // The bar at the bottom of narrower screens, and the sheet it opens. It has three positions:
-// collapsed (just the bar), half open and expanded. Swipe up or down to move a position (a long
-// swipe goes all the way); tap the handle to open or close it; tap a tab to open that panel.
-// The sheet takes its room from the board area rather than covering it.
+// collapsed (just the bar), half open and expanded. It follows the finger while dragged and
+// glides to a position when let go: a short swipe moves one position, a long one all the way.
+// Tap the handle to open or close it; tap a tab to open that panel. The sheet takes its room
+// from the board area rather than covering it, so the board glides along with it.
 const PULLED = {
   up: { closed: 'open', open: 'full', full: 'full' },
   down: { closed: 'closed', open: 'closed', full: 'open' },
 };
+const SHARE = { open: 0.5, full: 0.88 }; // of the screen's height
+const GLIDE = 'transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none';
 
 function PanelSheet({ panels, active, state, onState, onTab, hidden }) {
+  const sheet = useRef(null);
+  const bar = useRef(null);
   const pull = useRef(null);
+  const [barHeight, setBarHeight] = useState(78);
+  const [dragHeight, setDragHeight] = useState(null); // while a finger is moving it
   const open = state !== 'closed';
+  useLayoutEffect(() => {
+    if (bar.current) setBarHeight(bar.current.offsetHeight);
+  }, []);
   // The bar keeps following the finger even when it leaves the bar, so a tap on a tab is
   // handled here too, once it's clear the finger didn't pull.
   const onDown = (event) => {
-    pull.current = { id: event.pointerId, y: event.clientY, moved: false, tab: event.target.closest('[role=tab]')?.dataset.panel };
+    pull.current = {
+      id: event.pointerId,
+      y: event.clientY,
+      start: sheet.current.offsetHeight,
+      moved: false,
+      tab: event.target.closest('[role=tab]')?.dataset.panel,
+    };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
   const onMove = (event) => {
     const p = pull.current;
-    if (p && p.id === event.pointerId && Math.abs(event.clientY - p.y) >= 12) p.moved = true;
+    if (!p || p.id !== event.pointerId) return;
+    const dy = event.clientY - p.y;
+    if (!p.moved && Math.abs(dy) < 8) return;
+    p.moved = true;
+    const room = sheet.current.parentElement.clientHeight;
+    setDragHeight(Math.min(room * 0.92, Math.max(barHeight, p.start - dy)));
   };
   const onUp = (event) => {
     const p = pull.current;
     pull.current = null;
+    setDragHeight(null); // glide from wherever the finger left it
     if (!p) return;
     const dy = event.clientY - p.y;
-    if (Math.abs(dy) >= 24) {
+    if (p.moved) {
+      if (Math.abs(dy) < 24) return; // barely moved: it glides back
       const far = Math.abs(dy) > 160;
       if (dy < 0) onState(far ? 'full' : PULLED.up[state]);
       else onState(far ? 'closed' : PULLED.down[state]);
       return;
     }
-    if (p.moved) return;
     if (p.tab) onTab(p.tab);
     else onState(open ? 'closed' : 'open'); // a tap on the handle toggles it
   };
+  const height = dragHeight !== null ? `${dragHeight}px` : state === 'closed' ? `${barHeight}px` : `${SHARE[state] * 100}%`;
   return (
     <div
-      className={`relative z-30 flex shrink-0 flex-col rounded-t-3xl bg-white shadow-[0_-8px_24px_rgba(15,23,42,0.12)] ${
-        { closed: '', open: 'h-[50%]', full: 'h-[88%]' }[state]
+      ref={sheet}
+      style={{ height }}
+      className={`relative z-30 flex shrink-0 flex-col overflow-hidden rounded-t-3xl bg-white shadow-[0_-8px_24px_rgba(15,23,42,0.12)] ${
+        dragHeight === null ? GLIDE : ''
       } ${hidden ? 'hidden' : ''}`}
     >
       <div
+        ref={bar}
         className='shrink-0 cursor-grab touch-none select-none'
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={() => {
           pull.current = null;
+          setDragHeight(null);
         }}
       >
         <div
@@ -182,7 +209,8 @@ function PanelSheet({ panels, active, state, onState, onTab, hidden }) {
           ))}
         </div>
       </div>
-      <div className={`min-h-0 overflow-y-auto px-3 pb-3 ${open ? '' : 'hidden'}`}>
+      {/* The panels stay in place while the sheet slides, so closing it glides rather than emptying first. */}
+      <div aria-hidden={!open} inert={open ? undefined : ''} className='min-h-0 flex-1 overflow-y-auto px-3 pb-3'>
         {panels.map(({ id, content }) => (
           <div key={id} className={id === active ? '' : 'hidden'}>
             {content}
