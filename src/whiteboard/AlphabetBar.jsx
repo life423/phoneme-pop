@@ -58,7 +58,7 @@ export default function AlphabetBar({ letters = {}, onPoint }) {
             <span
               key={letter}
               data-letter={letter}
-              className={`flex h-9 items-center justify-center rounded-lg border text-lg font-extrabold ${tone(letter, letters)}`}
+              className={`flex h-9 items-center justify-center rounded-lg border text-lg font-extrabold sm:h-12 sm:rounded-xl sm:text-2xl ${tone(letter, letters)}`}
             >
               {letter}
             </span>

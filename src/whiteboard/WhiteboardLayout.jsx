@@ -7,7 +7,9 @@ import { chooseArrangement } from './arrangement.js';
 
 const FILL = { fill: true, bar: false };
 const FILL_WITH_BAR = { fill: true, bar: true };
-const STACKED = { fill: false, bar: false, align: 'end' };
+// Upright tablets fill the board like phones do, and keep it filled as the sheet slides.
+const STACKED = { fill: true, bar: false, align: 'end', sticky: true };
+const STACKED_WITH_BAR = { fill: true, bar: true, align: 'end', sticky: true };
 
 // The one layout the tutor's and the student's screens share. Which arrangement a screen gets
 // is worked out from the space it has (see arrangement.js), never from what the device is.
@@ -277,22 +279,26 @@ export default function WhiteboardLayout({ header, banner, tools, board, alphabe
       />
     );
 
-  // Tablets held upright: the labelled tools beside the board, the board fitted across and
-  // sitting low, the video in the room above it, and tiles and pictures docked open below.
+  // Tablets held upright: the labelled tools beside the board, the alphabet in its own bar, the
+  // board filling the room below it (pinch to zoom, two fingers to pan, like phones), the video
+  // floating in its corner, and tiles and pictures docked open below.
   if (arrangement === 'stacked') {
     return (
       <div className='relative flex h-dvh flex-col overflow-hidden bg-slate-200'>
         {!focus && header}
         <div className='relative flex min-h-0 flex-1 gap-3 p-3'>
           {tools && <div className='flex shrink-0 items-center'>{tools}</div>}
-          <div className='relative min-w-0 flex-1'>
-            <main className='relative h-full w-full overflow-hidden rounded-2xl bg-slate-100 shadow'>
-              <BoardFit.Provider value={STACKED}>{board}</BoardFit.Provider>
-            </main>
-            <FloatingVideo place='absolute right-3 top-3 z-20 flex w-52 touch-none justify-end'>
-              <VideoPanel call={call} peerName={peerName} floating collapse={focus} />
-            </FloatingVideo>
-            {focus && <ExitFocus onClick={() => setFocus(false)} />}
+          <div className='flex min-w-0 flex-1 flex-col gap-2'>
+            {alphabet}
+            <div className='relative min-h-0 flex-1'>
+              <main className='relative h-full w-full overflow-hidden rounded-2xl bg-slate-100 shadow'>
+                <BoardFit.Provider value={alphabet ? STACKED_WITH_BAR : STACKED}>{board}</BoardFit.Provider>
+              </main>
+              <FloatingVideo place='absolute right-3 top-14 z-20 flex w-52 touch-none justify-end'>
+                <VideoPanel call={call} peerName={peerName} floating collapse={focus} />
+              </FloatingVideo>
+              {focus && <ExitFocus onClick={() => setFocus(false)} />}
+            </div>
           </div>
         </div>
         {sheetFor(TABLET_SHARE)}
