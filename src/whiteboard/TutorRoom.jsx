@@ -8,6 +8,8 @@ import { INK } from './board.js';
 import { BOARD_SHAPE, PARKED_HAND, STAGE, letterAt } from './stage.js';
 import { ClearButton, Switch, ToolButton, ToolRail } from './Toolbar.jsx';
 import TileBar from './TileBar.jsx';
+import PicturesPanel from './PicturesPanel.jsx';
+import { pictureUrl } from './pictures.js';
 import VideoPanel from './VideoPanel.jsx';
 import { useVideoCall } from './useVideoCall.js';
 import { CopyButton, MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
@@ -33,6 +35,8 @@ export default function TutorRoom() {
   const [busy, setBusy] = useState(false);
   const [tip, setTip] = useState(null);
   const [selectedTileId, setSelectedTileId] = useState(null); // clicked, ready to change
+  const [sidePanel, setSidePanel] = useState('tiles'); // the side column's tab: letter tiles or pictures
+  const stageApi = useRef(null);
   const [studentMarker, setStudentMarker] = useFrameState(null);
   const [myMarker, setMyMarker] = useFrameState(null);
   const roomRef = useRef(room);
@@ -59,7 +63,7 @@ export default function TutorRoom() {
         sessionStorage.setItem(SAVED, JSON.stringify(saved));
         setRoom(saved);
         // The server restarted and forgot this room: hand it our copy of the board.
-        if (msg.fresh) wb.restore(studentToolsRef.current);
+        if (msg.fresh) wb.restore(studentToolsRef.current, saved);
       } else if (msg.t === 'tools') {
         setStudentTools(Boolean(msg.on));
       } else if (msg.t === 'presence') {
@@ -232,6 +236,14 @@ export default function TutorRoom() {
             selectedTile={selectedTileId}
             canManageTiles
             tileActions={{ ...wb.tileActions, select: setSelectedTileId }}
+            pieces={wb.pieces}
+            pictures={wb.pictures}
+            pictureSrc={(id) => pictureUrl(room.code, id)}
+            pieceActions={wb.pieceActions}
+            canEditPieces
+            canDeletePieces
+            canDuplicatePieces
+            stageApi={stageApi}
             letters={{ student: pointing, tutor: myMarker?.kind === 'hand' ? myMarker.letter : null }}
             tool={tool}
             markers={markers}
@@ -248,6 +260,24 @@ export default function TutorRoom() {
         </main>
         <div className='-m-1 flex max-h-full w-64 shrink-0 flex-col gap-2 overflow-y-auto p-1 sm:gap-4 xl:w-72'>
           <VideoPanel call={call} peerName='your student' fill />
+          <div role='tablist' aria-label='Things for the board' className='grid grid-cols-2 gap-1 rounded-2xl bg-white p-1 shadow'>
+            {[
+              ['tiles', 'Letter tiles'],
+              ['pictures', 'Pictures'],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type='button'
+                role='tab'
+                aria-selected={sidePanel === id}
+                onClick={() => setSidePanel(id)}
+                className={`rounded-xl px-3 py-2 text-sm font-bold ${sidePanel === id ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-violet-50'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className={sidePanel === 'tiles' ? '' : 'hidden'}>
           <TileBar
             count={wb.tiles.length}
             selected={wb.tiles.find((t) => t.id === selectedTileId) || null}
@@ -263,6 +293,23 @@ export default function TutorRoom() {
             boxes={wb.boxes}
             onBoxes={wb.setBoxes}
           />
+          </div>
+          <div className={sidePanel === 'pictures' ? '' : 'hidden'}>
+            <PicturesPanel
+              pictures={wb.pictures}
+              srcFor={(id) => pictureUrl(room.code, id)}
+              canAdd
+              onAddFile={(file) => wb.addPicture(file, room)}
+              onClear={wb.clearPictures}
+              offers={wb.offers}
+              onOffer={wb.offerActions.give}
+              onWithdraw={wb.offerActions.withdraw}
+              onReset={wb.offerActions.reset}
+              onPlace={wb.pieceActions.add}
+              stageApi={stageApi}
+              onShow={() => setSidePanel('pictures')}
+            />
+          </div>
         </div>
       </div>
     </div>
