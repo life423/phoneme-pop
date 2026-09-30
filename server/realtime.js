@@ -1,5 +1,5 @@
 import { WebSocketServer } from 'ws';
-import { randomBytes, randomInt } from 'node:crypto';
+import { createHmac, randomBytes, randomInt } from 'node:crypto';
 import { BOX_COUNTS, MAX_TILES, clampTile, cleanTileText, nextHome, snapTile, tileKind } from '../shared/tiles.js';
 
 // Live rooms for the Alphabet Whiteboard: one tutor and one student per room.
@@ -17,6 +17,9 @@ const MAX_STROKE_NUMBERS = 8000; // 4,000 points
 const MAX_CHUNK_NUMBERS = 256;
 const POINTER_PER_SECOND = 60;
 const DRAW_PER_SECOND = 120;
+const RTC_PER_SECOND = 100; // ICE candidates arrive in bursts
+const MAX_SDP = 20000;
+const TURN_LOGIN_SECONDS = 6 * 60 * 60; // a TURN login outlasts a long lesson, then expires
 
 const isCode = (value) =>
   typeof value === 'string' && value.length === 4 && [...value].every((c) => c >= '0' && c <= '9');
@@ -57,6 +60,7 @@ export function attachRealtime(server, options = {}) {
     joinAttemptsPerWindow = 30,
     joinWindowMs = 5 * 60_000,
     heartbeatMs = 25_000,
+    turn = {}, // { host, secret, tls } for the TURN relay; without a secret, calls use STUN only
   } = options;
 
   const rooms = new Map();
@@ -187,6 +191,44 @@ export function attachRealtime(server, options = {}) {
     recent.push(now);
     joinAttempts.set(ip, recent);
     return recent.length <= joinAttemptsPerWindow;
+  };
+
+  // ICE servers for a call: STUN, plus TURN with a login that expires. This is the TURN REST
+  // API scheme: the relay checks an HMAC of the username against the secret it shares with us.
+  const iceServersFor = (room, role) => {
+    if (!turn.host) return [];
+    const servers = [{ urls: `stun:${turn.host}:3478` }];
+    if (turn.secret) {
+      const username = `${Math.floor(Date.now() / 1000) + TURN_LOGIN_SECONDS}:${room.code}-${role}`;
+      const credential = createHmac('sha1', turn.secret).update(username).digest('base64');
+      const urls = [`turn:${turn.host}:3478?transport=udp`, `turn:${turn.host}:3478?transport=tcp`];
+      if (turn.tls) urls.push(`turns:${turn.host}:443?transport=tcp`);
+      servers.push({ urls, username, credential });
+    }
+    return servers;
+  };
+
+  const cleanDescription = (d) =>
+    d && (d.type === 'offer' || d.type === 'answer') && typeof d.sdp === 'string' && d.sdp.length <= MAX_SDP
+      ? { type: d.type, sdp: d.sdp }
+      : null;
+
+  // An ICE candidate, or null for end-of-candidates. Anything else comes back undefined and is dropped.
+  const cleanCandidate = (c) => {
+    if (c === null) return null;
+    if (!c || typeof c.candidate !== 'string' || c.candidate.length > 1000) return undefined;
+    return {
+      candidate: c.candidate,
+      sdpMid: typeof c.sdpMid === 'string' ? c.sdpMid.slice(0, 64) : null,
+      sdpMLineIndex: Number.isInteger(c.sdpMLineIndex) ? c.sdpMLineIndex : null,
+      usernameFragment: typeof c.usernameFragment === 'string' ? c.usernameFragment.slice(0, 256) : null,
+    };
+  };
+
+  const relayRtc = (ws, msg) => {
+    const role = roleOf(ws);
+    if (!role || !allow(ws, 'rtc', RTC_PER_SECOND)) return;
+    send(otherSide(ws.room, role), msg);
   };
 
   const handlers = {
@@ -505,6 +547,31 @@ export function attachRealtime(server, options = {}) {
       room.zTop += 1;
       room.order += 1;
       room.tiles.set(t.id, { id: t.id, text, kind: tileKind(text), ...pos, hx: home.x, hy: home.y, z: room.zTop, order: room.order, heldBy: null });
+    },
+
+    // Video calls. The server only introduces the two browsers; the audio and video go
+    // directly between them (or through the TURN relay), never through this server.
+    'rtc:config'(ws) {
+      const role = roleOf(ws);
+      if (role) send(ws, { t: 'rtc:config', iceServers: iceServersFor(ws.room, role) });
+    },
+
+    'rtc:ready'(ws) {
+      relayRtc(ws, { t: 'rtc:ready' });
+    },
+
+    'rtc:leave'(ws) {
+      relayRtc(ws, { t: 'rtc:leave' });
+    },
+
+    'rtc:description'(ws, msg) {
+      const description = cleanDescription(msg.description);
+      if (description) relayRtc(ws, { t: 'rtc:description', description });
+    },
+
+    'rtc:candidate'(ws, msg) {
+      const candidate = cleanCandidate(msg.candidate);
+      if (candidate !== undefined) relayRtc(ws, { t: 'rtc:candidate', candidate });
     },
 
     end(ws) {

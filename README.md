@@ -36,6 +36,19 @@ Tools: the tutor has their own hand (a blue glove), a blue pen, an eraser, undo 
 
 Letter tiles: the tutor types tiles into the bar under the board (spaces separate them, so sh stays one tile), and they line up on a tray along the bottom. Both people can drag them; whoever is dragging a tile holds it until they drop it. The tutor can delete a tile, click one to change its letters (for word chains like map, mat, sat), send them all back to the tray, or clear them, and can turn on 2 to 5 sound boxes that tiles snap into. Tiles are coloured by kind (vowel, consonant, letter team), stored on each tile so a different scheme can be added later. The tutor can also hide the alphabet strip for both screens; the board grows into its space without moving anything. Tile rules and geometry live in shared/tiles.js, used by both the browser and the server.
 
+## Video calls
+
+The whiteboard has a one-to-one video call in a collapsible panel beside the board. Camera and microphone stay off until each person clicks Start video. The room's WebSocket carries only the call setup (`rtc:*` messages, relayed between the two people in a room); audio and video go directly between the browsers, never through the app server. The client uses the perfect-negotiation pattern, with the student as the polite side.
+
+When a direct connection isn't possible (strict school or office networks), the call goes through our own TURN relay on Azure:
+
+- Resource group `myprivateteacher-turn` (South Central US): a Standard_B1ls Ubuntu 24.04 VM running coturn, a static public IP with the free hostname `myprivateteacher-turn.southcentralus.cloudapp.azure.com`, and a network security group that only opens the TURN ports (3478 UDP/TCP, 443 TCP for TURN over TLS, relay ports 49152-49252 UDP, and 80 for certificate renewal). There is no SSH; manage it with `az vm run-command`. Roughly $9-10 a month, with a $15 monthly budget alert on the resource group.
+- `infra/turn/create.sh` creates it and `infra/turn/setup-vm.sh` configures coturn (a free Let's Encrypt certificate that renews itself, security updates on, no relaying into private networks, per-user and bandwidth caps).
+- The app signs a short-lived TURN login for each call with a secret it shares with the relay (the TURN REST API scheme). `scripts/set-turn-secret.sh` creates that secret and installs it on both sides without printing it; run it again to rotate it.
+- App settings: `TURN_HOST`, `TURN_SECRET` (a Container App secret) and `TURN_TLS`. Without a secret the app offers STUN only.
+
+Check the relay: `az vm run-command invoke -g myprivateteacher-turn -n turn --command-id RunShellScript --scripts 'systemctl status coturn --no-pager | head -5'`
+
 ## Content notes
 
 - Words live in `src/data/wordLists.js`. In `display`, vowels carry a breve (short) or macron (long), and `[brackets]` mark letters that make one sound together; they render underlined.

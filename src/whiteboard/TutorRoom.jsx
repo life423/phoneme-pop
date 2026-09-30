@@ -8,6 +8,8 @@ import { INK } from './board.js';
 import { PARKED_HAND, STAGE, letterAt } from './stage.js';
 import { ClearButton, Switch, ToolButton, ToolRail } from './Toolbar.jsx';
 import TileBar from './TileBar.jsx';
+import VideoPanel from './VideoPanel.jsx';
+import { useVideoCall } from './useVideoCall.js';
 import { CopyButton, MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
 
 const SAVED = 'wb-tutor';
@@ -43,11 +45,13 @@ export default function TutorRoom() {
   studentToolsRef.current = studentTools;
 
   const wb = useWhiteboard('tutor', (msg) => sendRef.current(msg));
+  const call = useVideoCall('tutor', (msg) => sendRef.current(msg));
 
   const { status, send } = useRealtime({
     // Asking for the saved code again lets a refresh or a deploy keep the same room.
     hello: () => ({ t: 'create', code: roomRef.current.code, key: roomRef.current.key }),
     onMessage: (msg) => {
+      if (call.handle(msg)) return;
       if (msg.t === 'board') setStudentTools(Boolean(msg.tools));
       if (wb.handle(msg)) return;
       if (msg.t === 'room') {
@@ -66,7 +70,10 @@ export default function TutorRoom() {
             setTip('Tip: drag your student’s hand to guide it');
           }
         }
-        if (!msg.student) setStudentMarker(null);
+        if (!msg.student) {
+          setStudentMarker(null);
+          call.peerGone();
+        }
         setStudentHere(msg.student);
       } else if (msg.t === 'p') {
         if (dragging.current) return; // you have the student's hand right now
@@ -256,6 +263,7 @@ export default function TutorRoom() {
           onBoxes={wb.setBoxes}
         />
         </div>
+        <VideoPanel call={call} peerName='your student' />
       </div>
     </div>
   );

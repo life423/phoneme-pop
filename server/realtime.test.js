@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import http from 'node:http';
 import WebSocket from 'ws';
+import { createHmac } from 'node:crypto';
 import { attachRealtime } from './realtime.js';
 
 const ORIGIN = 'http://localhost:8080';
@@ -10,7 +11,7 @@ let url;
 
 beforeAll(async () => {
   server = http.createServer((req, res) => res.end());
-  realtime = attachRealtime(server, { allowedOrigins: new Set([ORIGIN]), tutorGraceMs: 150, joinAttemptsPerWindow: 1000, maxRoomsPerIp: 1000 });
+  realtime = attachRealtime(server, { allowedOrigins: new Set([ORIGIN]), tutorGraceMs: 150, joinAttemptsPerWindow: 1000, maxRoomsPerIp: 1000, turn: { host: 'turn.example', secret: 'test-secret', tls: true } });
   await new Promise((resolve) => server.listen(0, resolve));
   url = `ws://localhost:${server.address().port}/ws`;
 });
@@ -389,5 +390,48 @@ describe('letter tiles', () => {
     const board = await back.take('board');
     expect(board).toMatchObject({ strip: false, boxes: 3 });
     expect(board.tiles.map((t) => [t.text, t.x, t.y])).toEqual([['ck', tile.x, tile.y]]);
+  });
+});
+
+describe('video call setup', () => {
+  it('passes call setup between the two people in a room, and nobody else', async () => {
+    const { tutor, code } = await openRoom();
+    const { student } = await joinRoom(code);
+    const outsider = await openRoom();
+
+    tutor.send({ t: 'rtc:ready' });
+    expect(await student.take('rtc:ready')).toEqual({ t: 'rtc:ready' });
+
+    const offer = { type: 'offer', sdp: 'v=0 fake offer' };
+    student.send({ t: 'rtc:description', description: offer });
+    expect((await tutor.take('rtc:description')).description).toEqual(offer);
+
+    const candidate = { candidate: 'candidate:1 1 udp 2122260223 192.0.2.1 54400 typ host', sdpMid: '0', sdpMLineIndex: 0 };
+    tutor.send({ t: 'rtc:candidate', candidate });
+    expect((await student.take('rtc:candidate')).candidate).toMatchObject(candidate);
+    await nothing(outsider.tutor, 'rtc:candidate');
+  });
+
+  it('drops malformed or oversized call messages', async () => {
+    const { tutor, code } = await openRoom();
+    const { student } = await joinRoom(code);
+    tutor.send({ t: 'rtc:description', description: { type: 'offer', sdp: 'x'.repeat(20001) } });
+    tutor.send({ t: 'rtc:description', description: { type: 'pranswer', sdp: 'v=0' } });
+    tutor.send({ t: 'rtc:candidate', candidate: { candidate: 42 } });
+    await nothing(student, 'rtc:description');
+    await nothing(student, 'rtc:candidate');
+  });
+
+  it('hands out TURN logins that expire and that the relay can verify', async () => {
+    const { tutor, code } = await openRoom();
+    tutor.send({ t: 'rtc:config' });
+    const { iceServers } = await tutor.take('rtc:config');
+    expect(iceServers[0]).toEqual({ urls: 'stun:turn.example:3478' });
+    const relay = iceServers[1];
+    expect(relay.urls).toContain('turns:turn.example:443?transport=tcp');
+    const [expires, user] = relay.username.split(':');
+    expect(user).toBe(`${code}-tutor`);
+    expect(Number(expires)).toBeGreaterThan(Date.now() / 1000);
+    expect(relay.credential).toBe(createHmac('sha1', 'test-secret').update(relay.username).digest('base64'));
   });
 });
