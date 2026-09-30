@@ -9,8 +9,12 @@ import { STAGE, clamp } from './stage.js';
 // How far in anyone can zoom: four times the size that fills the screen's longer side.
 export const MAX_ZOOM = 4;
 
-// Set by the layout: on narrower screens a board held upright starts filling the height.
-export const BoardFit = createContext({ fill: false });
+// Set by the layout: on narrower screens a board held upright starts filling the height, and
+// with the alphabet bar pinned above it (phones), it starts at the writing area below the strip.
+export const BoardFit = createContext({ fill: false, bar: false });
+
+// Where the writing area starts, for a phone that shows the alphabet in its own bar.
+export const BELOW_STRIP = 168;
 
 // Where the board sits in a width x height box for a view. Bigger than the box, it never
 // leaves a gap at an edge; smaller, it sits in the middle.
@@ -46,8 +50,8 @@ export const viewAt = (width, height, scale, x, y, px, py) => ({
   cy: y + (height / 2 - py) / scale,
 });
 
-// The board filling the box's height, from its left edge (where the alphabet starts).
-export function fillView(width, height) {
-  const scale = height / STAGE.height;
-  return { scale, cx: width / 2 / scale, cy: STAGE.height / 2 };
+// The board filling the box's height from `top` down, from its left edge.
+export function fillView(width, height, top = 0) {
+  const scale = height / (STAGE.height - top);
+  return { scale, cx: width / 2 / scale, cy: top + (STAGE.height - top) / 2 };
 }

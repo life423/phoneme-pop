@@ -7,6 +7,7 @@ import Stage from './Stage.jsx';
 import { INK } from './board.js';
 import { PARKED_HAND, STAGE, letterAt } from './stage.js';
 import WhiteboardLayout from './WhiteboardLayout.jsx';
+import AlphabetBar from './AlphabetBar.jsx';
 import { ToolButton, ToolRail } from './Toolbar.jsx';
 import PicturesPanel from './PicturesPanel.jsx';
 import { pictureUrl } from './pictures.js';
@@ -205,11 +206,6 @@ export default function StudentRoom({ code }) {
           {pill}
         </TopBar>
       }
-      banner={
-        <p className='hidden bg-amber-100 px-4 py-2 text-center text-sm font-semibold text-amber-900 portrait:max-lg:block'>
-          Turn your screen sideways for bigger letters.
-        </p>
-      }
       tools={
         toolsOn && (
           <ToolRail label='Your tools'>
@@ -259,6 +255,7 @@ export default function StudentRoom({ code }) {
       }
       call={call}
       peerName='your tutor'
+      alphabet={wb.strip ? <AlphabetBar letters={{ student: myMarker?.kind === 'hand' ? myMarker.letter : null, tutor: tutorMarker?.kind === 'hand' ? tutorMarker.letter : null }} onPoint={(p) => share(p, 'hand')} /> : null}
       controls={layout}
       panels={[
         {

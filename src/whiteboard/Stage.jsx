@@ -9,7 +9,7 @@ import { BOARD, CELL_WIDTH, LETTERS, STAGE, STRIP, TOUCH_LIFT, boardRect, clamp,
 import { TILE_HEIGHT, clampTile, soundBoxes, tileWidth } from '../../shared/tiles.js';
 import { clampPiece, pieceSize } from '../../shared/pieces.js';
 import { Copy, Expand, Shrink, Trash2 } from 'lucide-react';
-import { BoardFit, fillView, frame, viewAt, viewBoxOf } from './viewport.js';
+import { BELOW_STRIP, BoardFit, fillView, frame, viewAt, viewBoxOf } from './viewport.js';
 
 const VIEW_BOX = `0 0 ${STAGE.width} ${STAGE.height}`;
 // Handwriting guides (top line, dashed midline, baseline) stay put even when the board grows.
@@ -171,7 +171,8 @@ export default function Stage({
   // person alone. The board's own coordinates never change, so the other screen never notices.
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [view, setView] = useState(null);
-  const { fill } = useContext(BoardFit);
+  const { fill, bar: alphabetBar } = useContext(BoardFit);
+  const fillTop = alphabetBar && strip ? BELOW_STRIP : 0; // the alphabet has its own bar, so start at the writing
   const filled = useRef(false);
   const layout = frame(size.width, size.height, view);
   const viewBox = viewBoxOf(layout, size.width, size.height);
@@ -223,7 +224,7 @@ export default function Stage({
       setSize({ width, height });
       if (fill && !filled.current && width && height / width > (STAGE.height / STAGE.width) * 1.15) {
         filled.current = true;
-        setView(fillView(width, height));
+        setView(fillView(width, height, fillTop));
       }
     };
     update();
@@ -620,7 +621,7 @@ export default function Stage({
       {layout.scale > 0 && (view || size.height / size.width > 0.72) && (
         <button
           type='button'
-          onClick={() => setView(view ? null : fillView(size.width, size.height))}
+          onClick={() => setView(view ? null : fillView(size.width, size.height, fillTop))}
           aria-label={view ? 'Fit the whole board' : 'Fill the screen with the board'}
           title={view ? 'Fit the whole board' : 'Fill the screen with the board'}
           className='absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-slate-700 shadow ring-1 ring-slate-200 hover:bg-white'
