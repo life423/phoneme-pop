@@ -726,7 +726,11 @@ export default function Stage({
             )}
           </g>
         )}
-        {markers.map(({ key, ...marker }) => (
+        {/* With the alphabet in its own bar (phones, upright tablets), a hand on the strip shows
+            there, lighting up its letter, rather than peeking out under the bar. */}
+        {markers
+          .filter((m) => !(fillTop && m.y < fillTop))
+          .map(({ key, ...marker }) => (
           <Marker
             key={key}
             {...marker}
