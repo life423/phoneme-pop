@@ -1,10 +1,12 @@
 import { useRef } from 'react';
+import { Pointer } from 'lucide-react';
 import { CELL_WIDTH, LETTERS, STRIP } from './stage.js';
 
 // The alphabet on phones: two rows of 13, pinned above the zoomable board and sized to the
 // screen, so every letter is always in view. The board's own one-row strip is still there
 // (the tutor's screen shows it); pointing at a letter here puts the hand on that letter
-// there, and the other person's pointing lights up here.
+// there, and the other person's pointing lights up here. A small hand sits on each pointed-at
+// letter (violet for the student, blue for the tutor), so the hand seems to move up into the bar.
 const ROWS = [LETTERS.slice(0, 13), LETTERS.slice(13)];
 
 // Where a letter sits on the shared board's strip.
@@ -58,9 +60,15 @@ export default function AlphabetBar({ letters = {}, onPoint }) {
             <span
               key={letter}
               data-letter={letter}
-              className={`flex h-9 items-center justify-center rounded-lg border text-lg font-extrabold sm:h-12 sm:rounded-xl sm:text-2xl ${tone(letter, letters)}`}
+              className={`relative flex h-9 items-center justify-center rounded-lg border text-lg font-extrabold sm:h-12 sm:rounded-xl sm:text-2xl ${tone(letter, letters)}`}
             >
               {letter}
+              {(letter === letters.student || letter === letters.tutor) && (
+                <span className='pointer-events-none absolute -right-1.5 -top-1.5 flex' aria-hidden='true'>
+                  {letter === letters.student && <Pointer className='hand-student h-4 w-4 rounded-full bg-white p-px text-violet-700 shadow sm:h-5 sm:w-5' />}
+                  {letter === letters.tutor && <Pointer className='hand-tutor h-4 w-4 rounded-full bg-white p-px text-blue-600 shadow sm:h-5 sm:w-5' />}
+                </span>
+              )}
             </span>
           ))}
         </div>
