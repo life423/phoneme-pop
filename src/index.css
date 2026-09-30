@@ -20,7 +20,3 @@ body {
     height: 100%;
   }
 }
-/* Narrower screens: as big as fits in the space left for it, by width or by height. */
-.wb-board-fit {
-  width: min(100cqw, 160cqh);
-}

@@ -4,7 +4,7 @@ import { Link } from '../router.jsx';
 
 // The header. `children` are the essentials, always shown. `menu` holds the session controls:
 // in the bar on wide screens, behind a settings button on narrower ones. `end` (End session,
-// Leave) always sits at the far right. On phones a room header drops its title for space.
+// Leave) sits at the far right, and on phones moves into the menu to leave room for the title.
 export function TopBar({ back, title, children, menu, end }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -20,17 +20,21 @@ export function TopBar({ back, title, children, menu, end }) {
   return (
     <header
       ref={ref}
-      className={`relative z-30 flex items-center gap-x-3 gap-y-2 bg-white px-3 py-2 shadow-sm sm:px-4 ${room ? 'xl:flex-wrap xl:gap-x-4' : 'flex-wrap gap-x-4'}`}
+      className={`relative z-30 flex items-center gap-x-3 gap-y-2 bg-white px-3 py-2 shadow-sm sm:px-4 ${room ? '2xl:flex-wrap 2xl:gap-x-4' : 'flex-wrap gap-x-4'}`}
     >
       {back && (
         <Link to={back} aria-label='Back' className='rounded-full p-2 text-violet-700 hover:bg-violet-100'>
           <ArrowLeft className='h-5 w-5' aria-hidden='true' />
         </Link>
       )}
-      <h1 className={`shrink-0 text-lg font-bold text-violet-800 sm:text-xl ${room ? 'hidden sm:block' : ''}`}>{title}</h1>
-      <div className={`flex min-w-0 flex-1 items-center justify-end gap-x-2 gap-y-2 sm:gap-x-4 ${room ? 'xl:flex-wrap' : 'flex-wrap'}`}>
+      <h1 className={`text-lg font-bold text-violet-800 sm:text-xl ${room ? 'min-w-0 truncate max-sm:text-base' : 'shrink-0'}`}>{title}</h1>
+      <div
+        className={`flex items-center justify-end gap-x-2 gap-y-2 sm:gap-x-4 ${
+          room ? 'ml-auto shrink-0 2xl:min-w-0 2xl:flex-1 2xl:shrink 2xl:flex-wrap' : 'min-w-0 flex-1 flex-wrap'
+        }`}
+      >
         {children}
-        {menu && <div className='hidden items-center gap-x-4 gap-y-2 xl:flex xl:flex-wrap'>{menu}</div>}
+        {menu && <div className='hidden items-center gap-x-4 gap-y-2 2xl:flex 2xl:flex-wrap'>{menu}</div>}
         {menu && (
           <button
             type='button'
@@ -38,16 +42,17 @@ export function TopBar({ back, title, children, menu, end }) {
             aria-label='Session menu'
             title='Session menu'
             onClick={() => setOpen((was) => !was)}
-            className={`rounded-full p-2 xl:hidden ${open ? 'bg-violet-100 text-violet-800' : 'text-slate-700 hover:bg-slate-100'}`}
+            className={`rounded-full p-2 2xl:hidden ${open ? 'bg-violet-100 text-violet-800' : 'text-slate-700 hover:bg-slate-100'}`}
           >
             <MoreHorizontal className='h-5 w-5' aria-hidden='true' />
           </button>
         )}
-        {end}
+        {end && <div className='max-sm:hidden'>{end}</div>}
       </div>
       {menu && open && (
-        <div className='absolute right-2 top-full z-40 mt-2 flex w-72 max-w-[calc(100vw-1rem)] flex-col items-start gap-3 rounded-2xl bg-white p-4 shadow-xl ring-1 ring-slate-200 xl:hidden'>
+        <div className='absolute right-2 top-full z-40 mt-2 flex w-72 max-w-[calc(100vw-1rem)] flex-col items-start gap-3 rounded-2xl bg-white p-4 shadow-xl ring-1 ring-slate-200 2xl:hidden'>
           {menu}
+          {end && <div className='sm:hidden'>{end}</div>}
         </div>
       )}
     </header>

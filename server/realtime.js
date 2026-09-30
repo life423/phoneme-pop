@@ -45,6 +45,16 @@ function cleanPoints(pts) {
   return out;
 }
 
+// A part of the board (x, y, w, h in board units), tidied up, or null.
+function viewRect(m) {
+  if (![m.x, m.y, m.w, m.h].every(Number.isFinite)) return null;
+  const x = Math.min(Math.max(Math.round(m.x), 0), 1600);
+  const y = Math.min(Math.max(Math.round(m.y), 0), 1000);
+  const w = Math.min(Math.round(m.w), 1600 - x);
+  const h = Math.min(Math.round(m.h), 1000 - y);
+  return w >= 20 && h >= 20 ? { x, y, w, h } : null;
+}
+
 // Azure's ingress appends the real client address as the last X-Forwarded-For entry.
 function clientIp(req) {
   const forwarded = req.headers['x-forwarded-for'];
@@ -603,6 +613,18 @@ export function attachRealtime(server, options = {}) {
       room.tiles.set(t.id, { id: t.id, text, kind: tileKind(text), ...pos, hx: home.x, hy: home.y, z: room.zTop, order: room.order, heldBy: null });
     },
 
+    // Zoom and pan stay on each screen. The student's screen tells the tutor's which part of the
+    // board it shows, and the tutor can bring the student's screen to a part of the board.
+    view(ws, msg) {
+      const rect = viewRect(msg);
+      if (roleOf(ws) !== 'student' || !rect || !allow(ws, 'view', 12)) return;
+      send(otherSide(ws.room, 'student'), { t: 'view', ...rect });
+    },
+    focus(ws, msg) {
+      const rect = viewRect(msg);
+      if (!isTutor(ws) || !rect || !allow(ws, 'view', 12)) return;
+      send(otherSide(ws.room, 'tutor'), { t: 'focus', ...rect });
+    },
     // Picture pieces: a window onto one of the session's pictures, placed on the board.
     // The tutor can add any part. The student, while their tools are on, can only take a part
     // the tutor gave them, once, and gets exactly that part whatever their browser asks for.

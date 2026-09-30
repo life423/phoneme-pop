@@ -12,7 +12,8 @@ function InkCanvas({ board, layout, include, clip }) {
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas || !layout.width) return undefined;
-    const dpr = window.devicePixelRatio || 1;
+    // Sharp on high-density screens, but never bigger than 4096px a side (phones run out of memory).
+    const dpr = Math.min(window.devicePixelRatio || 1, 4096 / layout.width, 4096 / layout.height);
     canvas.width = Math.round(layout.width * dpr);
     canvas.height = Math.round(layout.height * dpr);
     const ctx = canvas.getContext('2d');

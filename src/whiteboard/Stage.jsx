@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Hand from './Hand.jsx';
 import InkCanvas from './InkCanvas.jsx';
 import Tile from './Tile.jsx';
@@ -8,7 +8,8 @@ import { INK, STUDENT_LAYER, TUTOR_LAYER, insideBoard } from './board.js';
 import { BOARD, CELL_WIDTH, LETTERS, STAGE, STRIP, TOUCH_LIFT, boardRect, clamp, letterAt } from './stage.js';
 import { TILE_HEIGHT, clampTile, soundBoxes, tileWidth } from '../../shared/tiles.js';
 import { clampPiece, pieceSize } from '../../shared/pieces.js';
-import { Copy, Trash2 } from 'lucide-react';
+import { Copy, Expand, Shrink, Trash2 } from 'lucide-react';
+import { BELOW_STRIP, BoardFit, fillView, frame, viewAt, viewBoxOf } from './viewport.js';
 
 const VIEW_BOX = `0 0 ${STAGE.width} ${STAGE.height}`;
 // Handwriting guides (top line, dashed midline, baseline) stay put even when the board grows.
@@ -62,10 +63,10 @@ function letterTone(letter, studentLetter, tutorLetter) {
 }
 
 // The bottom layer: the alphabet strip (unless hidden), the board, its guide lines and the sound boxes.
-const Backdrop = memo(function Backdrop({ studentLetter, tutorLetter, strip, boxes }) {
+const Backdrop = memo(function Backdrop({ studentLetter, tutorLetter, strip, boxes, viewBox }) {
   const board = boardRect(strip);
   return (
-    <svg viewBox={VIEW_BOX} preserveAspectRatio='xMidYMid meet' className='absolute inset-0 h-full w-full' aria-hidden='true'>
+    <svg viewBox={viewBox} preserveAspectRatio='xMidYMid meet' className='absolute inset-0 h-full w-full' aria-hidden='true'>
       <rect width={STAGE.width} height={STAGE.height} rx='28' className='fill-slate-100' />
       {strip &&
         LETTERS.map((letter, i) => {
@@ -146,6 +147,9 @@ export default function Stage({
   canDeletePieces = false,
   canDuplicatePieces = false,
   stageApi = null,
+  onView = null, // told which part of the board this screen shows
+  peerView = null, // the part of the board the other person can see, outlined
+  focus = null, // { x, y, w, h, n }: show this part of the board (the tutor asked)
   tool = 'none',
   markers = [],
   grabbable = null,
@@ -160,10 +164,48 @@ export default function Stage({
   const dragging = useRef(null); // the student's hand, being moved by the tutor
   const tileDrag = useRef(null);
   const pieceDrag = useRef(null);
-  const lastPen = useRef(0);
+  const lastPen = useRef(-Infinity); // no Apple Pencil yet, so no touch counts as a palm
   const live = useRef({});
   live.current = { onPoint, onLeave, onStroke, onGrab, grabbable, tiles, tileActions, canManageTiles, strip };
-  const [layout, setLayout] = useState({ left: 0, top: 0, width: 0, height: 0 });
+  // The board's frame on screen: all of it fitted (view is null), or zoomed and panned by this
+  // person alone. The board's own coordinates never change, so the other screen never notices.
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const [view, setView] = useState(null);
+  const { fill, bar: alphabetBar } = useContext(BoardFit);
+  const fillTop = alphabetBar && strip ? BELOW_STRIP : 0; // the alphabet has its own bar, so start at the writing
+  const filled = useRef(false);
+  const layout = frame(size.width, size.height, view);
+  const viewBox = viewBoxOf(layout, size.width, size.height);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+  const gesture = useRef({ touches: new Map(), pinch: null, pan: null });
+
+  // The part of the board this screen shows, for the other person's outline.
+  const seen = layout.scale
+    ? (() => {
+        const x = clamp(-layout.left / layout.scale, 0, STAGE.width);
+        const y = clamp(-layout.top / layout.scale, 0, STAGE.height);
+        const right = clamp((size.width - layout.left) / layout.scale, 0, STAGE.width);
+        const bottom = clamp((size.height - layout.top) / layout.scale, 0, STAGE.height);
+        return { x: Math.round(x), y: Math.round(y), w: Math.round(right - x), h: Math.round(bottom - y) };
+      })()
+    : null;
+  const seenKey = seen ? `${seen.x},${seen.y},${seen.w},${seen.h}` : '';
+  const onViewRef = useRef(onView);
+  onViewRef.current = onView;
+  useEffect(() => {
+    if (seen) onViewRef.current?.(seen);
+  }, [seenKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The tutor asked this screen to show a part of the board: as big as fits, in the middle.
+  useEffect(() => {
+    if (!focus || !size.width) return;
+    const scale = Math.min(size.width / focus.w, size.height / focus.h);
+    if (scale <= frame(size.width, size.height, null).fit * 1.02) setView(null);
+    else setView({ scale, cx: focus.x + focus.w / 2, cy: focus.y + focus.h / 2 });
+  }, [focus?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   const [grip, setGrip] = useState(null); // 'grab', 'grabbing' or 'remove', for the cursor
   const [selectedPieceId, setSelectedPieceId] = useState(null);
   // Pieces are handled with the pointer tools (Watch, Hand), never the pen or eraser.
@@ -173,19 +215,62 @@ export default function Stage({
   const pieceButtons = [canDuplicatePieces && 'duplicate', canDeletePieces && 'delete'].filter(Boolean);
   const bar = selectedPiece && pieceButtons.length ? toolbarOf(selectedPiece, pieceButtons) : null;
 
-  // Where the letterboxed stage actually sits, so the ink canvases can line up with it.
+  // The space the board has. Upright phones start with the board filling the height.
   useLayoutEffect(() => {
     const el = wrapRef.current;
     const update = () => {
-      const width = Math.min(el.clientWidth, (el.clientHeight * STAGE.width) / STAGE.height);
-      const height = (width * STAGE.height) / STAGE.width;
-      setLayout({ left: (el.clientWidth - width) / 2, top: (el.clientHeight - height) / 2, width, height });
+      const width = el.clientWidth;
+      const height = el.clientHeight;
+      setSize({ width, height });
+      if (fill && !filled.current && width && height / width > (STAGE.height / STAGE.width) * 1.15) {
+        filled.current = true;
+        setView(fillView(width, height, fillTop));
+      }
     };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [fill]);
+
+  // Zooming and panning. Everything is in the board box's own pixels.
+  const local = (clientX, clientY) => {
+    const box = wrapRef.current.getBoundingClientRect();
+    return { x: clientX - box.left, y: clientY - box.top };
+  };
+  const boardPoint = (p) => {
+    const f = layoutRef.current;
+    return { x: (p.x - f.left) / f.scale, y: (p.y - f.top) / f.scale };
+  };
+  // Shows board point (x, y) at box point (px, py) at a scale; all the way out means 'fit'.
+  const zoomTo = (scale, x, y, px, py) => {
+    const f = layoutRef.current;
+    if (scale <= f.fit * 1.02) return setView(null);
+    const { width, height } = sizeRef.current;
+    setView(viewAt(width, height, Math.min(scale, f.max), x, y, px, py));
+  };
+
+  // Trackpad pinch (or Ctrl + scroll) zooms; scrolling pans once zoomed in.
+  useEffect(() => {
+    const el = wrapRef.current;
+    const onWheel = (event) => {
+      const f = layoutRef.current;
+      if (!f.scale) return;
+      const p = local(event.clientX, event.clientY);
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        const at = boardPoint(p);
+        zoomTo(f.scale * Math.exp(-event.deltaY * 0.01), at.x, at.y, p.x, p.y);
+      } else if (f.scale > f.fit * 1.02) {
+        event.preventDefault();
+        const { width, height } = sizeRef.current;
+        const middle = boardPoint({ x: width / 2, y: height / 2 });
+        zoomTo(f.scale, middle.x + event.deltaX / f.scale, middle.y + event.deltaY / f.scale, width / 2, height / 2);
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Changing tools (or losing them) ends any stroke in progress.
   useEffect(() => {
@@ -253,6 +338,21 @@ export default function Stage({
 
   const onPointerDown = (event) => {
     if (isPalm(event)) return;
+    if (event.pointerType === 'touch') {
+      const g = gesture.current;
+      g.touches.set(event.pointerId, local(event.clientX, event.clientY));
+      if (g.touches.size === 2) {
+        // A second finger: stop whatever the first was doing, and pinch or pan instead.
+        for (const id of g.touches.keys()) if (id !== event.pointerId) endAction({ pointerId: id });
+        g.pan = null;
+        const [a, b] = [...g.touches.values()];
+        const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        g.pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, scale: layoutRef.current.scale, at: boardPoint(middle) };
+        capture(event);
+        return;
+      }
+      if (g.touches.size > 2) return;
+    }
     const { onPoint: point, onStroke: stroke, onGrab: grab, grabbable: hand, tileActions: tileOps } = live.current;
     const raw = toStage(event.clientX, event.clientY);
     if (!raw) return;
@@ -329,7 +429,14 @@ export default function Stage({
       return;
     }
     if (movable) setSelectedPieceId(null);
-    if (tool === 'none') return;
+    if (tool === 'none') {
+      // Watching: dragging the empty board pans it when zoomed in.
+      if (view) {
+        capture(event);
+        gesture.current.pan = { id: event.pointerId, at: boardPoint(local(event.clientX, event.clientY)) };
+      }
+      return;
+    }
     if (tool === 'hand') {
       if (event.pointerType !== 'mouse') capture(event);
       const p = handPoint(event);
@@ -344,6 +451,23 @@ export default function Stage({
   };
 
   const onPointerMove = (event) => {
+    const g = gesture.current;
+    if (event.pointerType === 'touch' && g.touches.has(event.pointerId)) {
+      g.touches.set(event.pointerId, local(event.clientX, event.clientY));
+      if (g.pinch && g.touches.size >= 2) {
+        const [a, b] = [...g.touches.values()];
+        const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const scale = g.pinch.scale * (Math.hypot(a.x - b.x, a.y - b.y) / g.pinch.dist);
+        zoomTo(scale, g.pinch.at.x, g.pinch.at.y, middle.x, middle.y);
+        return;
+      }
+      if (g.pinch) return; // the finger left after a pinch does nothing until it lifts
+    }
+    if (g.pan && g.pan.id === event.pointerId) {
+      const p = local(event.clientX, event.clientY);
+      zoomTo(layoutRef.current.scale, g.pan.at.x, g.pan.at.y, p.x, p.y);
+      return;
+    }
     if (isPalm(event)) return;
     const { onPoint: point, onStroke: stroke, onGrab: grab, grabbable: hand, tileActions: tileOps } = live.current;
     const drag = dragging.current;
@@ -420,7 +544,8 @@ export default function Stage({
     if (event.pointerType !== 'touch') point?.({ ...raw, letter: null });
   };
 
-  const onRelease = (event) => {
+  // Ends what a pointer was doing (a stroke, a drag). Also used when a second finger arrives.
+  const endAction = (event) => {
     if (dragging.current?.pointerId === event.pointerId) {
       dragging.current = null;
       setGrip(null);
@@ -449,6 +574,17 @@ export default function Stage({
     }
   };
 
+  const onRelease = (event) => {
+    const g = gesture.current;
+    if (g.touches.delete(event.pointerId) && g.touches.size === 0) g.pinch = null;
+    if (g.pinch) return;
+    if (g.pan && g.pan.id === event.pointerId) {
+      g.pan = null;
+      return;
+    }
+    endAction(event);
+  };
+
   const onPointerLeave = (event) => {
     if (event.pointerType !== 'mouse' || dragging.current || tileDrag.current || pieceDrag.current) return;
     setGrip(null);
@@ -460,7 +596,6 @@ export default function Stage({
   if (grip === 'grabbing') cursor = 'cursor-grabbing';
   if (grip === 'remove') cursor = 'cursor-pointer';
   if (PIECE_CURSORS[grip]) cursor = PIECE_CURSORS[grip];
-  const touchable = tool !== 'none' || Boolean(grabbable) || tiles.length > 0 || pieces.length > 0;
   const picById = new Map(pictures.map((p) => [p.id, p]));
 
   // Lets the Pictures panel drop a part exactly where the pointer lets go over the board.
@@ -470,6 +605,7 @@ export default function Stage({
       pointAt(clientX, clientY) {
         const box = wrapRef.current?.getBoundingClientRect();
         if (!box || !layout.width) return null;
+        if (clientX < box.left || clientX > box.right || clientY < box.top || clientY > box.bottom) return null;
         const x = clientX - box.left - layout.left;
         const y = clientY - box.top - layout.top;
         if (x < 0 || y < 0 || x > layout.width || y > layout.height) return null;
@@ -481,9 +617,20 @@ export default function Stage({
   const stacked = [...tiles].sort((a, b) => a.z - b.z);
 
   return (
-    <div ref={wrapRef} className='relative h-full w-full select-none'>
-      <Backdrop studentLetter={letters.student ?? null} tutorLetter={letters.tutor ?? null} strip={strip} boxes={boxes} />
-      <svg viewBox={VIEW_BOX} preserveAspectRatio='xMidYMid meet' className='pointer-events-none absolute inset-0 h-full w-full' aria-hidden='true'>
+    <div ref={wrapRef} className='relative h-full w-full select-none overflow-hidden'>
+      {layout.scale > 0 && (view || size.height / size.width > 0.72) && (
+        <button
+          type='button'
+          onClick={() => setView(view ? null : fillView(size.width, size.height, fillTop))}
+          aria-label={view ? 'Fit the whole board' : 'Fill the screen with the board'}
+          title={view ? 'Fit the whole board' : 'Fill the screen with the board'}
+          className='absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-slate-700 shadow ring-1 ring-slate-200 hover:bg-white'
+        >
+          {view ? <Shrink className='h-4 w-4' aria-hidden='true' /> : <Expand className='h-4 w-4' aria-hidden='true' />}
+        </button>
+      )}
+      <Backdrop studentLetter={letters.student ?? null} tutorLetter={letters.tutor ?? null} strip={strip} boxes={boxes} viewBox={viewBox} />
+      <svg viewBox={viewBox} preserveAspectRatio='xMidYMid meet' className='pointer-events-none absolute inset-0 h-full w-full' aria-hidden='true'>
         {stackedPieces.map((piece) => (
           <PieceImage key={piece.id} piece={piece} pic={picById.get(piece.pic)} src={pictureSrc(piece.pic)} />
         ))}
@@ -492,9 +639,9 @@ export default function Stage({
       <InkCanvas board={board} layout={layout} include={STUDENT_LAYER} clip={clip} />
       <svg
         ref={svgRef}
-        viewBox={VIEW_BOX}
+        viewBox={viewBox}
         preserveAspectRatio='xMidYMid meet'
-        className={`absolute inset-0 h-full w-full ${cursor} ${touchable ? 'touch-none' : ''}`}
+        className={`absolute inset-0 h-full w-full ${cursor} touch-none`}
         style={{ WebkitTouchCallout: 'none' }}
         role='img'
         aria-label={letters.student ? `Alphabet strip, pointing at ${letters.student}` : 'Alphabet strip and whiteboard'}
@@ -508,6 +655,24 @@ export default function Stage({
         {stacked.map((tile) => (
           <Tile key={tile.id} tile={tile} mine={me} selected={tile.id === selectedTile} removable={canManageTiles} />
         ))}
+        {peerView && (peerView.w < STAGE.width - 10 || peerView.h < STAGE.height - 10) && (
+          <g className='pointer-events-none'>
+            <rect
+              x={peerView.x}
+              y={peerView.y}
+              width={peerView.w}
+              height={peerView.h}
+              rx='10'
+              fill='none'
+              strokeWidth='4'
+              strokeDasharray='16 10'
+              className='stroke-violet-500/70'
+            />
+            <text x={peerView.x + 14} y={peerView.y + 30} className='fill-violet-600/80' style={{ fontSize: 20, fontWeight: 700 }}>
+              Student’s screen
+            </text>
+          </g>
+        )}
         {stackedPieces
           .filter((p) => p.heldBy && p.heldBy !== me)
           .map((p) => (
