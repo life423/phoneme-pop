@@ -87,6 +87,7 @@ export default function PicturesPanel({
   onOffer,
   onWithdraw,
   onReset,
+  canTake = false,
   stageApi,
   onShow,
 }) {
@@ -105,8 +106,7 @@ export default function PicturesPanel({
   const svgRef = useRef(null);
   const press = useRef(null);
 
-  // The student only sees pictures the tutor has given them a part of.
-  const shown = student ? pictures.filter((p) => offers.some((o) => o.pic === p.id)) : pictures;
+  const shown = pictures; // both people see every picture
   const pic = shown.find((p) => p.id === openId) || null;
   const src = pic ? srcFor(pic.id) : null;
   const size = pic ? `${pic.w}x${pic.h}` : '';
@@ -192,6 +192,10 @@ export default function PicturesPanel({
     if (student) {
       const offer = offerAt(available, p);
       if (!offer) return;
+      if (!canTake) {
+        setNote('Your tutor needs to turn on your tools first.');
+        return;
+      }
       setSelection(offer.crop);
       pickUp(event, offer.crop, offer.id);
       return;
@@ -257,7 +261,12 @@ export default function PicturesPanel({
     if (mode === 'box') hint = 'Drag across the picture to draw a box around what you want.';
     if (selection) hint = 'Drag the selected part onto the board, or use the buttons below.';
     if (offered) hint = offered.taken ? 'Your student has taken this part.' : 'Your student can take this part once, while their tools are on.';
-    if (student) hint = available.length ? 'Drag the bright part onto the board. You can take it once.' : 'You’ve used the part your tutor gave you.';
+    if (student) {
+      if (available.length && canTake) hint = 'Drag the bright part onto the board. You can take it once.';
+      else if (available.length) hint = 'Your tutor will turn on your tools so you can take the bright part.';
+      else if (picOffers.length) hint = 'You’ve used the part your tutor gave you.';
+      else hint = 'Your tutor hasn’t given you a part of this picture yet.';
+    }
     const dim = `M0 0H${pic.w}V${pic.h}H0Z${available.map((o) => `M${o.crop.x} ${o.crop.y}h${o.crop.w}v${o.crop.h}h${-o.crop.w}Z`).join('')}`;
     return (
       <section aria-label='Pictures' className={card}>
@@ -284,7 +293,7 @@ export default function PicturesPanel({
             onPointerCancel={onUp}
             onPointerLeave={() => setHover(null)}
           >
-            {student && <path d={dim} fillRule='evenodd' className='fill-slate-900/50' />}
+            {student && available.length > 0 && <path d={dim} fillRule='evenodd' className='fill-slate-900/40' />}
             {(student ? available : picOffers).map((o) => (
               <Outline key={o.id} r={o.crop} className='fill-none stroke-amber-400' />
             ))}
@@ -322,7 +331,7 @@ export default function PicturesPanel({
           </div>
         )}
         <p className='text-xs text-slate-500'>{hint}</p>
-        {selection && (!student || chosen) && (
+        {selection && (!student || (chosen && canTake)) && (
           <button type='button' onClick={() => place(selection, undefined, undefined, chosen?.id)} className={primary}>
             Add to board
           </button>
@@ -402,7 +411,7 @@ export default function PicturesPanel({
       )}
       {shown.length === 0 ? (
         <p className='text-sm text-slate-500'>
-          {student ? 'Your tutor hasn’t given you a part to use yet.' : 'Add a worksheet or picture, then lift parts out of it with Magic Select.'}
+          {student ? 'Your tutor hasn’t added any pictures yet.' : 'Add a worksheet or picture, then lift parts out of it with Magic Select.'}
         </p>
       ) : (
         <ul className='-mx-1 flex max-h-[45vh] flex-col gap-2 overflow-y-auto px-1'>
