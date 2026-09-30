@@ -7,6 +7,8 @@ import Stage from './Stage.jsx';
 import { INK } from './board.js';
 import { PARKED_HAND, STAGE, letterAt } from './stage.js';
 import { ToolButton, ToolRail } from './Toolbar.jsx';
+import VideoPanel from './VideoPanel.jsx';
+import { useVideoCall } from './useVideoCall.js';
 import { MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
 
 const round4 = (n) => Math.round(n * 10000) / 10000;
@@ -38,6 +40,7 @@ export default function StudentRoom({ code }) {
   const sendRef = useRef(() => {});
 
   const wb = useWhiteboard('student', (msg) => sendRef.current(msg));
+  const call = useVideoCall('student', (msg) => sendRef.current(msg));
   const joinMessage = () => ({ t: 'join', code, key: keyRef.current || undefined });
 
   // The tutor decides whether the toolbar is available.
@@ -50,6 +53,7 @@ export default function StudentRoom({ code }) {
   const { status, send } = useRealtime({
     hello: joinMessage,
     onMessage: (msg) => {
+      if (call.handle(msg)) return;
       if (msg.t === 'board') applyTools(Boolean(msg.tools), false);
       if (wb.handle(msg)) return;
       if (msg.t === 'tools') {
@@ -73,7 +77,10 @@ export default function StudentRoom({ code }) {
         setMyMarker({ kind: 'hand', by: 'student', ...p, smooth: true });
       } else if (msg.t === 'presence') {
         setTutorHere(msg.tutor);
-        if (!msg.tutor) setTutorMarker(null);
+        if (!msg.tutor) {
+          setTutorMarker(null);
+          call.peerGone();
+        }
       } else if (msg.t === 'p') {
         setTutorMarker(
           msg.m === 'none'
@@ -178,7 +185,7 @@ export default function StudentRoom({ code }) {
             <ToolButton icon={Undo2} label='Undo' disabled={!wb.canUndo} onClick={wb.undo} />
           </ToolRail>
         )}
-        <main className='relative min-h-0 flex-1'>
+        <main className='relative min-h-0 min-w-0 flex-1'>
           <Stage
             board={wb.board}
             me='student'
@@ -205,6 +212,7 @@ export default function StudentRoom({ code }) {
             <StageNotice>Move the hand to a letter ✋</StageNotice>
           )}
         </main>
+        <VideoPanel call={call} peerName='your tutor' />
       </div>
     </div>
   );

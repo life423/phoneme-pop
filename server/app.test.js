@@ -66,3 +66,11 @@ describe('web server', () => {
     expect((await get('/healthz', { host: '10.0.0.5' })).status).toBe(200);
   });
 });
+
+describe('video calls', () => {
+  it('lets this site, and only this site, use the camera and microphone', async () => {
+    const policy = (await get('/')).headers['permissions-policy'];
+    expect(policy).toContain('camera=(self)');
+    expect(policy).toContain('microphone=(self)');
+  });
+});

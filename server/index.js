@@ -21,7 +21,7 @@ const SECURITY_HEADERS = {
   'Content-Security-Policy': `default-src 'self'; connect-src 'self' wss://${CANONICAL_HOST}; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`,
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=()', // camera and mic for video calls, this site only
 };
 
 export function createApp() {
@@ -65,7 +65,10 @@ export function createApp() {
 
 export function start(port = PORT) {
   const server = http.createServer(createApp());
-  const realtime = attachRealtime(server, { allowedOrigins: ALLOWED_ORIGINS });
+  const realtime = attachRealtime(server, {
+    allowedOrigins: ALLOWED_ORIGINS,
+    turn: { host: process.env.TURN_HOST, secret: process.env.TURN_SECRET, tls: process.env.TURN_TLS === 'true' },
+  });
 
   server.listen(port, () => {
     // The container binds port 80 as root, then runs as the unprivileged node user.
