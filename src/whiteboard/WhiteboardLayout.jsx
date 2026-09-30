@@ -87,36 +87,87 @@ function FloatingVideo({ children }) {
   );
 }
 
-// The bar at the bottom of narrower screens, and the sheet it opens.
-function PanelSheet({ panels, active, open, onTab, onToggle, hidden }) {
+// The bar at the bottom of narrower screens, and the sheet it opens. Tap the bar or a tab to
+// open it, or pull it up; pull it up again for more room, pull it down to shrink or close it.
+const PULLED = {
+  up: { closed: 'open', open: 'full', full: 'full' },
+  down: { closed: 'closed', open: 'closed', full: 'open' },
+};
+
+function PanelSheet({ panels, active, state, onState, onTab, hidden }) {
+  const pull = useRef(null);
+  const open = state !== 'closed';
+  // The bar keeps following the finger even when it leaves the bar, so a tap on a tab is
+  // handled here too, once it's clear the finger didn't pull.
+  const onDown = (event) => {
+    pull.current = { id: event.pointerId, y: event.clientY, moved: false, tab: event.target.closest('[role=tab]')?.dataset.panel };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onMove = (event) => {
+    const p = pull.current;
+    if (!p || p.id !== event.pointerId || p.moved || Math.abs(event.clientY - p.y) < 24) return;
+    p.moved = true;
+    onState(PULLED[event.clientY < p.y ? 'up' : 'down'][state]);
+  };
+  const onUp = () => {
+    const p = pull.current;
+    pull.current = null;
+    if (!p || p.moved) return;
+    if (p.tab) onTab(p.tab);
+    else onState(open ? 'closed' : 'open'); // a tap on the bar itself
+  };
   return (
     <div
-      className={`absolute inset-x-0 bottom-0 z-30 flex max-h-[62%] flex-col rounded-t-3xl bg-white shadow-[0_-8px_24px_rgba(15,23,42,0.12)] ${hidden ? 'hidden' : ''}`}
+      className={`absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-3xl bg-white shadow-[0_-8px_24px_rgba(15,23,42,0.12)] ${
+        state === 'full' ? 'max-h-[92%]' : 'max-h-[62%]'
+      } ${hidden ? 'hidden' : ''}`}
     >
-      <button type='button' aria-label={open ? 'Close the panel' : 'Open the panel'} onClick={onToggle} className='flex shrink-0 justify-center pb-1 pt-2'>
-        <span className='h-1.5 w-12 rounded-full bg-slate-300' aria-hidden='true' />
-      </button>
       <div
-        role='tablist'
-        aria-label='Things for the board'
-        className='mx-3 mb-2 grid shrink-0 gap-1 rounded-2xl bg-slate-100 p-1'
-        style={{ gridTemplateColumns: `repeat(${panels.length}, minmax(0, 1fr))` }}
+        className='shrink-0 cursor-grab touch-none select-none'
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={() => {
+          pull.current = null;
+        }}
       >
-        {panels.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type='button'
-            role='tab'
-            aria-selected={open && active === id}
-            onClick={() => onTab(id)}
-            className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-bold ${
-              open && active === id ? 'bg-violet-600 text-white shadow' : 'text-slate-700 hover:bg-white'
-            }`}
-          >
-            {Icon && <Icon className='h-4 w-4' aria-hidden='true' />}
-            {label}
-          </button>
-        ))}
+        <div
+          role='button'
+          tabIndex={0}
+          aria-label={open ? 'Close the panel' : 'Open the panel'}
+          aria-expanded={open}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') onState(open ? 'closed' : 'open');
+          }}
+          className='flex justify-center pb-2 pt-3'
+        >
+          <span className='h-1.5 w-12 rounded-full bg-slate-300' aria-hidden='true' />
+        </div>
+        <div
+          role='tablist'
+          aria-label='Things for the board'
+          className='mx-3 mb-2 grid gap-1 rounded-2xl bg-slate-100 p-1'
+          style={{ gridTemplateColumns: `repeat(${panels.length}, minmax(0, 1fr))` }}
+        >
+          {panels.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type='button'
+              role='tab'
+              aria-selected={open && active === id}
+              data-panel={id}
+              onClick={(event) => {
+                if (event.detail === 0) onTab(id); // the keyboard; taps are handled by the bar
+              }}
+              className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-bold ${
+                open && active === id ? 'bg-violet-600 text-white shadow' : 'text-slate-700 hover:bg-white'
+              }`}
+            >
+              {Icon && <Icon className='h-4 w-4' aria-hidden='true' />}
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
       <div className={`min-h-0 overflow-y-auto px-3 pb-3 ${open ? '' : 'hidden'}`}>
         {panels.map(({ id, content }) => (
@@ -145,17 +196,17 @@ function ExitFocus({ onClick }) {
 export default function WhiteboardLayout({ header, banner, tools, board, call, peerName, panels = [], controls }) {
   const compact = useCompact();
   const [active, setActive] = useState(panels[0]?.id);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheet, setSheet] = useState('closed'); // the bottom sheet: closed, open or full
   const [focus, setFocus] = useState(false);
   const current = panels.some((p) => p.id === active) ? active : panels[0]?.id;
   if (controls) {
     controls.current = {
       show(id) {
         setActive(id);
-        setSheetOpen(true);
+        setSheet((was) => (was === 'closed' ? 'open' : was));
       },
       closeSheet() {
-        setSheetOpen(false);
+        setSheet('closed');
       },
       setFocus,
     };
@@ -222,13 +273,13 @@ export default function WhiteboardLayout({ header, banner, tools, board, call, p
         <PanelSheet
           panels={panels}
           active={current}
-          open={sheetOpen}
+          state={sheet}
           hidden={focus}
-          onToggle={() => setSheetOpen((was) => !was)}
+          onState={setSheet}
           onTab={(id) => {
-            if (sheetOpen && id === current) return setSheetOpen(false);
+            if (sheet !== 'closed' && id === current) return setSheet('closed');
             setActive(id);
-            setSheetOpen(true);
+            setSheet((was) => (was === 'closed' ? 'open' : was));
           }}
         />
       )}
