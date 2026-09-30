@@ -4,7 +4,7 @@ export function ToolRail({ label, children }) {
   return (
     <nav
       aria-label={label}
-      className='flex shrink-0 flex-col justify-center gap-1 self-center rounded-2xl bg-white p-1.5 shadow max-lg:portrait:flex-row lg:gap-1.5 lg:p-2'
+      className='flex shrink-0 flex-col justify-center gap-1 self-center rounded-2xl bg-white p-1.5 shadow lg:gap-1.5 lg:p-2'
     >
       {children}
     </nav>

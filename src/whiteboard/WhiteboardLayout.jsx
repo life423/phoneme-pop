@@ -3,11 +3,14 @@ import { Minimize2, Pencil, X } from 'lucide-react';
 import { BOARD_SHAPE } from './stage.js';
 import VideoPanel from './VideoPanel.jsx';
 import { BoardFit } from './viewport.js';
+import { chooseArrangement } from './arrangement.js';
 
 const FILL = { fill: true, bar: false };
 const FILL_WITH_BAR = { fill: true, bar: true };
+const STACKED = { fill: false, bar: false, align: 'end' };
 
-// The one layout the tutor's and the student's screens share.
+// The one layout the tutor's and the student's screens share. Which arrangement a screen gets
+// is worked out from the space it has (see arrangement.js), never from what the device is.
 //  - Wide screens (1024px and up): tools | board | side column (video, then the panels).
 //  - Narrower screens (tablets, phones): the board fills the space (upright phones start zoomed
 //    to its height; pinch to zoom, two fingers to pan), with the tools behind a
@@ -16,17 +19,15 @@ const FILL_WITH_BAR = { fill: true, bar: true };
 //  - Focus mode, on any screen: just the board, the rest tucked away.
 // The board is always the same 1600 x 1000 stage, scaled to fit, so both people see the
 // same thing whatever their screens. `controls` lets a room open a panel or start focus mode.
-const COMPACT = '(max-width: 1023.98px)';
-
-function useCompact() {
-  const [compact, setCompact] = useState(() => window.matchMedia(COMPACT).matches);
+function useArrangement() {
+  const pick = () => chooseArrangement(window.innerWidth, window.innerHeight);
+  const [arrangement, setArrangement] = useState(pick);
   useEffect(() => {
-    const query = window.matchMedia(COMPACT);
-    const update = () => setCompact(query.matches);
-    query.addEventListener('change', update);
-    return () => query.removeEventListener('change', update);
+    const update = () => setArrangement(pick());
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
   }, []);
-  return compact;
+  return arrangement;
 }
 
 // The drawing tools on narrower screens: a pencil button that opens the tool rail.
@@ -47,13 +48,15 @@ function FloatingTools({ tools, focus }) {
       >
         {open ? <X className='h-5 w-5' aria-hidden='true' /> : <Pencil className='h-5 w-5' aria-hidden='true' />}
       </button>
-      {open && <div className='pointer-events-auto max-h-full overflow-y-auto rounded-2xl'>{tools}</div>}
+      {open && <div className='pointer-events-auto max-h-full overflow-y-auto rounded-2xl portrait:[&_nav]:flex-row'>{tools}</div>}
     </div>
   );
 }
 
 // A small video window over the board that can be dragged anywhere in its area.
-function FloatingVideo({ children }) {
+const VIDEO_CORNER = 'absolute bottom-20 right-3 z-20 flex w-40 touch-none justify-end sm:w-52 landscape:bottom-auto landscape:top-3';
+
+function FloatingVideo({ children, place = VIDEO_CORNER }) {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const box = useRef(null);
   const drag = useRef(null);
@@ -81,7 +84,7 @@ function FloatingVideo({ children }) {
     <div
       ref={box}
       style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
-      className='absolute bottom-20 right-3 z-20 flex w-40 touch-none justify-end sm:w-52 landscape:bottom-auto landscape:top-3'
+      className={place}
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
@@ -102,9 +105,10 @@ const PULLED = {
   down: { closed: 'closed', open: 'closed', full: 'open' },
 };
 const SHARE = { open: 0.5, full: 0.88 }; // of the screen's height
+const TABLET_SHARE = { open: 0.34, full: 0.88 }; // docked open on upright tablets, leaving the board room
 const GLIDE = 'transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none';
 
-function PanelSheet({ panels, active, state, onState, onTab, hidden }) {
+function PanelSheet({ panels, active, state, onState, onTab, hidden, shares = SHARE }) {
   const sheet = useRef(null);
   const bar = useRef(null);
   const pull = useRef(null);
@@ -151,7 +155,7 @@ function PanelSheet({ panels, active, state, onState, onTab, hidden }) {
     if (p.tab) onTab(p.tab);
     else onState(open ? 'closed' : 'open'); // a tap on the handle toggles it
   };
-  const height = dragHeight !== null ? `${dragHeight}px` : state === 'closed' ? `${barHeight}px` : `${SHARE[state] * 100}%`;
+  const height = dragHeight !== null ? `${dragHeight}px` : state === 'closed' ? `${barHeight}px` : `${shares[state] * 100}%`;
   return (
     <div
       ref={sheet}
@@ -235,9 +239,13 @@ function ExitFocus({ onClick }) {
 }
 
 export default function WhiteboardLayout({ header, banner, tools, board, alphabet, call, peerName, panels = [], controls }) {
-  const compact = useCompact();
+  const arrangement = useArrangement();
   const [active, setActive] = useState(panels[0]?.id);
-  const [sheet, setSheet] = useState('closed'); // the bottom sheet: closed, open or full
+  // The bottom sheet: closed, open or full. Upright tablets have room for it docked open.
+  const [sheet, setSheet] = useState(() => (arrangement === 'stacked' ? 'open' : 'closed'));
+  useEffect(() => {
+    setSheet(arrangement === 'stacked' ? 'open' : 'closed');
+  }, [arrangement]);
   const [focus, setFocus] = useState(false);
   const current = panels.some((p) => p.id === active) ? active : panels[0]?.id;
   if (controls) {
@@ -253,7 +261,46 @@ export default function WhiteboardLayout({ header, banner, tools, board, alphabe
     };
   }
 
-  if (!compact) {
+  const sheetFor = (shares) =>
+    panels.length > 0 && (
+      <PanelSheet
+        panels={panels}
+        active={current}
+        state={sheet}
+        shares={shares}
+        hidden={focus}
+        onState={setSheet}
+        onTab={(id) => {
+          setActive(id);
+          setSheet((was) => (was === 'closed' ? 'open' : was));
+        }}
+      />
+    );
+
+  // Tablets held upright: the labelled tools beside the board, the board fitted across and
+  // sitting low, the video in the room above it, and tiles and pictures docked open below.
+  if (arrangement === 'stacked') {
+    return (
+      <div className='relative flex h-dvh flex-col overflow-hidden bg-slate-200'>
+        {!focus && header}
+        <div className='relative flex min-h-0 flex-1 gap-3 p-3'>
+          {tools && <div className='flex shrink-0 items-center'>{tools}</div>}
+          <div className='relative min-w-0 flex-1'>
+            <main className='relative h-full w-full overflow-hidden rounded-2xl bg-slate-100 shadow'>
+              <BoardFit.Provider value={STACKED}>{board}</BoardFit.Provider>
+            </main>
+            <FloatingVideo place='absolute right-3 top-3 z-20 flex w-52 touch-none justify-end'>
+              <VideoPanel call={call} peerName={peerName} floating collapse={focus} />
+            </FloatingVideo>
+            {focus && <ExitFocus onClick={() => setFocus(false)} />}
+          </div>
+        </div>
+        {sheetFor(TABLET_SHARE)}
+      </div>
+    );
+  }
+
+  if (arrangement === 'side') {
     return (
       <div className='flex h-dvh flex-col bg-slate-200'>
         {!focus && header}
@@ -311,19 +358,7 @@ export default function WhiteboardLayout({ header, banner, tools, board, alphabe
           {focus && <ExitFocus onClick={() => setFocus(false)} />}
         </div>
       </div>
-      {panels.length > 0 && (
-        <PanelSheet
-          panels={panels}
-          active={current}
-          state={sheet}
-          hidden={focus}
-          onState={setSheet}
-          onTab={(id) => {
-            setActive(id);
-            setSheet((was) => (was === 'closed' ? 'open' : was));
-          }}
-        />
-      )}
+      {sheetFor(SHARE)}
     </div>
   );
 }

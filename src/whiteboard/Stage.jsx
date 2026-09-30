@@ -171,10 +171,10 @@ export default function Stage({
   // person alone. The board's own coordinates never change, so the other screen never notices.
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [view, setView] = useState(null);
-  const { fill, bar: alphabetBar } = useContext(BoardFit);
+  const { fill, bar: alphabetBar, align } = useContext(BoardFit);
   const fillTop = alphabetBar && strip ? BELOW_STRIP : 0; // the alphabet has its own bar, so start at the writing
   const filled = useRef(false);
-  const layout = frame(size.width, size.height, view);
+  const layout = frame(size.width, size.height, view, align);
   const viewBox = viewBoxOf(layout, size.width, size.height);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
