@@ -49,6 +49,14 @@ When a direct connection isn't possible (strict school or office networks), the 
 
 Check the relay: `az vm run-command invoke -g myprivateteacher-turn -n turn --command-id RunShellScript --scripts 'systemctl status coturn --no-pager | head -5'`
 
+## Pictures and Magic Select
+
+The tutor adds worksheets or pictures in the Pictures tab beside the board (Add picture, or paste an image). The browser shrinks each one to at most 1600px as a JPEG before sending it. Pictures live only in the server's memory, for that room: no database and no disk, and they're gone when the session ends or the tutor removes them. `POST /api/rooms/:code/pictures/:id` needs the tutor's room key, and the server checks the bytes really are a JPEG, PNG or WebP. Limits: 8 pictures per room, 1.5 MB each, 200 MB across all rooms.
+
+Opening a picture shows Magic Select: parts glow on hover, a tap selects one, and dragging it drops a copy onto the board (Add to board places it in the middle). The part finder (`src/whiteboard/regions.js`) runs in the browser with no libraries. It takes the most common colour as the paper, groups everything else into pictures (exactly as drawn, so neighbours only merge if they touch) and blocks of text (small gaps bridged), and keeps a photo's rounded corners. Draw a box is the manual fallback.
+
+A piece on the board is a window onto its picture (`shared/pieces.js`), so the picture stays whole and the same part can be copied again. With Watch or Hand, click a piece to move it, resize it from its handles (it keeps its shape), duplicate it or delete it. Pieces sit under the ink, so you can write on them, and they sync and lock like letter tiles. The student can always move pieces. The tutor decides what the student may lift out: select a part and tap Give to student. The student sees every picture the tutor adds, with the parts given to them bright and the rest dimmed, and while their tools are on they can take each one once; the server holds them to it and hands over exactly the part given. Let them take it again resets a part. With tools on the student can also resize their pieces. Only the tutor adds pictures, duplicates and deletes pieces. If the server restarts mid-session, the tutor's browser sends its pictures back up before the board.
+
 ## Content notes
 
 - Words live in `src/data/wordLists.js`. In `display`, vowels carry a breve (short) or macron (long), and `[brackets]` mark letters that make one sound together; they render underlined.

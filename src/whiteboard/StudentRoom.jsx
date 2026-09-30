@@ -8,6 +8,8 @@ import { INK } from './board.js';
 import { BOARD_SHAPE, PARKED_HAND, STAGE, letterAt } from './stage.js';
 import { ToolButton, ToolRail } from './Toolbar.jsx';
 import VideoPanel from './VideoPanel.jsx';
+import PicturesPanel from './PicturesPanel.jsx';
+import { pictureUrl } from './pictures.js';
 import { useVideoCall } from './useVideoCall.js';
 import { MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
 
@@ -28,6 +30,7 @@ export default function StudentRoom({ code }) {
   const [tutorHere, setTutorHere] = useState(true);
   const [toolsOn, setToolsOn] = useState(false);
   const [tool, setTool] = useState('hand');
+  const stageApi = useRef(null);
   const [notice, setNotice] = useState(null);
   const [touched, setTouched] = useState(false);
   const [myMarker, setMyMarker] = useFrameState(null);
@@ -193,6 +196,12 @@ export default function StudentRoom({ code }) {
             boxes={wb.boxes}
             tiles={wb.tiles}
             tileActions={wb.tileActions}
+            pieces={wb.pieces}
+            pictures={wb.pictures}
+            pictureSrc={(id) => pictureUrl(code, id)}
+            pieceActions={wb.pieceActions}
+            canEditPieces={toolsOn}
+            stageApi={stageApi}
             letters={{
               student: myMarker?.kind === 'hand' ? myMarker.letter : null,
               tutor: tutorMarker?.kind === 'hand' ? tutorMarker.letter : null,
@@ -212,7 +221,18 @@ export default function StudentRoom({ code }) {
             <StageNotice>Move the hand to a letter ✋</StageNotice>
           )}
         </main>
-        <VideoPanel call={call} peerName='your tutor' />
+        {/* The same side column as the tutor's: video on top, the tutor's pictures below. */}
+        <div className='-m-1 flex max-h-full w-64 shrink-0 flex-col gap-2 overflow-y-auto p-1 sm:gap-4 xl:w-72'>
+          <VideoPanel call={call} peerName='your tutor' fill />
+          <PicturesPanel
+            pictures={wb.pictures}
+            offers={wb.offers}
+            canTake={toolsOn}
+            srcFor={(id) => pictureUrl(code, id)}
+            onPlace={wb.pieceActions.add}
+            stageApi={stageApi}
+          />
+        </div>
       </div>
     </div>
   );
