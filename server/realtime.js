@@ -1,7 +1,7 @@
 import { WebSocketServer } from 'ws';
 import { createHmac, randomBytes, randomInt } from 'node:crypto';
 import { BOX_COUNTS, MAX_TILES, clampTile, cleanTileText, nextHome, snapTile, tileKind } from '../shared/tiles.js';
-import { MAX_PICTURES, MAX_PICTURE_SIDE, MAX_PIECES, clampPiece, cleanCrop, isPictureId, pieceSize } from '../shared/pieces.js';
+import { MAX_OFFERS, MAX_PICTURES, MAX_PICTURE_SIDE, MAX_PIECES, clampPiece, cleanCrop, isPictureId, pieceSize } from '../shared/pieces.js';
 
 // Live rooms for the Alphabet Whiteboard: one tutor and one student per room.
 // Pointers go both ways. The board is an ordered list of strokes (pen ink or
@@ -105,6 +105,7 @@ export function attachRealtime(server, options = {}) {
     tiles: [...room.tiles.values()],
     pictures: [...room.pictures.values()].map(({ id, w, h }) => ({ id, w, h })),
     pieces: [...room.pieces.values()],
+    offers: [...room.offers.values()],
   });
 
   const broadcast = (room, msg) => {
@@ -155,6 +156,7 @@ export function attachRealtime(server, options = {}) {
   const forgetPictures = (room) => {
     for (const pic of room.pictures.values()) pictureBytes -= pic.bytes.length;
     room.pictures.clear();
+    room.offers.clear();
   };
 
   const closeRoom = (room, reason) => {
@@ -261,6 +263,14 @@ export function attachRealtime(server, options = {}) {
     return { id: p.id, pic: pic.id, crop, ...pos, ...size, z: room.zTop, heldBy: null };
   };
 
+  // A part of a picture the tutor gives the student, checked, or null.
+  const makeOffer = (room, o, taken = false) => {
+    if (!o || !isStrokeId(o.id) || room.offers.has(o.id) || room.offers.size >= MAX_OFFERS) return null;
+    const pic = room.pictures.get(o.pic);
+    const crop = cleanCrop(o.crop, pic);
+    return crop ? { id: o.id, pic: pic.id, crop, taken } : null;
+  };
+
   // Moves a piece, and resizes it too when a width comes along and this person may resize.
   const placePiece = (room, role, piece, msg) => {
     const size = Number.isFinite(msg.w) && canDraw(room, role) ? pieceSize(piece.crop, msg.w) : { w: piece.w, h: piece.h };
@@ -298,6 +308,7 @@ export function attachRealtime(server, options = {}) {
           tiles: new Map(),
           pictures: new Map(), // id -> { id, w, h, type, bytes }, for this session only
           pieces: new Map(),
+          offers: new Map(), // parts the tutor gave the student: id -> { id, pic, crop, taken }
           zTop: 0, // stacking order: the tile picked up last sits on top
           order: 0, // creation order, for packing the tray
           strip: true,
@@ -591,14 +602,48 @@ export function attachRealtime(server, options = {}) {
     },
 
     // Picture pieces: a window onto one of the session's pictures, placed on the board.
-    // The tutor can always add them; the student while their tools are on (Magic Select).
+    // The tutor can add any part. The student, while their tools are on, can only take a part
+    // the tutor gave them, once, and gets exactly that part whatever their browser asks for.
     'piece:add'(ws, msg) {
       const role = roleOf(ws);
-      if (!role || !canDraw(ws.room, role) || !allow(ws, 'tile', POINTER_PER_SECOND)) return;
-      const piece = makePiece(ws.room, msg.piece);
+      const room = ws.room;
+      if (!role || !canDraw(room, role) || !allow(ws, 'tile', POINTER_PER_SECOND)) return;
+      const offer = role === 'student' ? room.offers.get(msg.piece?.offer) : null;
+      if (role === 'student' && (!offer || offer.taken)) return;
+      const piece = makePiece(room, offer ? { ...msg.piece, pic: offer.pic, crop: offer.crop } : msg.piece);
       if (!piece) return;
-      ws.room.pieces.set(piece.id, piece);
-      broadcast(ws.room, { t: 'piece:add', piece });
+      room.pieces.set(piece.id, piece);
+      if (offer) {
+        offer.taken = true;
+        broadcast(room, { t: 'offer', offer });
+      }
+      broadcast(room, { t: 'piece:add', piece });
+    },
+    // Tutor only: give the student a part of a picture to take, once.
+    'offer:add'(ws, msg) {
+      if (!isTutor(ws)) return;
+      const offer = makeOffer(ws.room, msg.offer);
+      if (!offer) return;
+      ws.room.offers.set(offer.id, offer);
+      broadcast(ws.room, { t: 'offer', offer });
+    },
+    'offer:remove'(ws, msg) {
+      if (!isTutor(ws) || !ws.room.offers.delete(msg.id)) return;
+      broadcast(ws.room, { t: 'offer:remove', id: msg.id });
+    },
+    // Tutor only: let the student take a part again.
+    'offer:reset'(ws, msg) {
+      const offer = isTutor(ws) ? ws.room.offers.get(msg.id) : null;
+      if (!offer) return;
+      offer.taken = false;
+      broadcast(ws.room, { t: 'offer', offer });
+    },
+    // Tutor only, right after a restart: one of the parts they had given the student.
+    'rs-offer'(ws, msg) {
+      const room = ws.room;
+      if (!isTutor(ws) || !room.restoring) return;
+      const offer = makeOffer(room, msg.offer, Boolean(msg.offer?.taken));
+      if (offer) room.offers.set(offer.id, offer);
     },
     // Like tiles: whoever picks a piece up has it until they drop it.
     'piece:grab'(ws, msg) {
@@ -636,7 +681,7 @@ export function attachRealtime(server, options = {}) {
       if (!isTutor(ws)) return;
       ws.room.pieces.clear();
       forgetPictures(ws.room);
-      broadcast(ws.room, { t: 'pieces', pieces: [], pictures: [] });
+      broadcast(ws.room, { t: 'pieces', pieces: [], pictures: [], offers: [] });
     },
     // Tutor only, right after a restart: one piece of the board they kept (its picture goes up first).
     'rs-piece'(ws, msg) {

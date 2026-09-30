@@ -8,6 +8,7 @@ import { WORK } from './tiles.js';
 
 export const MAX_PICTURES = 8; // per room
 export const MAX_PIECES = 40; // per room
+export const MAX_OFFERS = 20; // parts the tutor has given the student, per room
 export const MAX_PICTURE_BYTES = 1_500_000; // after the browser shrinks it, usually far less
 export const MAX_PICTURE_SIDE = 4096;
 export const PIECE_MIN = 48; // the short side of a piece never gets smaller than this

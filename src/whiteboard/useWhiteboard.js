@@ -60,6 +60,7 @@ export function useWhiteboard(role, send) {
   const pieces = useRef(new Map());
   const pictures = useRef(new Map()); // id -> { id, w, h }
   const kept = useRef(new Map()); // the tutor's copies of pictures they added, in case the server restarts
+  const offers = useRef(new Map()); // parts the tutor gave the student, each theirs to take once
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
   const renderTiles = useCallback(() => setTileFrame(performance.now()), [setTileFrame]);
@@ -195,8 +196,8 @@ export function useWhiteboard(role, send) {
   // Picture pieces work like tiles: shown straight away here, confirmed by the server on drop.
   const pieceActions = useMemo(
     () => ({
-      add({ pic, crop, x, y, w }) {
-        sendRef.current({ t: 'piece:add', piece: { id: makeId('piece'), pic, crop, x, y, w } });
+      add({ offer, pic, crop, x, y, w }) {
+        sendRef.current({ t: 'piece:add', piece: { id: makeId('piece'), offer, pic, crop, x, y, w } });
       },
       duplicate(id) {
         const p = pieces.current.get(id);
@@ -248,6 +249,22 @@ export function useWhiteboard(role, send) {
     return { id };
   }, []);
 
+  // Tutor only: which parts the student may take.
+  const offerActions = useMemo(
+    () => ({
+      give({ pic, crop }) {
+        sendRef.current({ t: 'offer:add', offer: { id: makeId('offer'), pic, crop } });
+      },
+      withdraw(id) {
+        sendRef.current({ t: 'offer:remove', id });
+      },
+      reset(id) {
+        sendRef.current({ t: 'offer:reset', id });
+      },
+    }),
+    [],
+  );
+
   const clearPictures = useCallback(() => {
     kept.current.clear();
     sendRef.current({ t: 'pieces:clear' });
@@ -283,6 +300,7 @@ export function useWhiteboard(role, send) {
     async (tools, room) => {
       // Pictures go back up first, so the pieces that show them are accepted.
       if (room) for (const [id, shrunk] of kept.current) await sendPicture(room, id, shrunk);
+      for (const offer of offers.current.values()) sendRef.current({ t: 'rs-offer', offer });
       for (const s of board.strokes) sendRef.current({ t: 'rs', id: s.id, by: s.by, tool: s.tool, pts: s.pts });
       const ordered = [...tiles.current.values()].sort((a, b) => a.z - b.z);
       for (const tile of ordered) sendRef.current({ t: 'rs-tile', tile });
@@ -306,6 +324,7 @@ export function useWhiteboard(role, send) {
           tiles.current = new Map((Array.isArray(msg.tiles) ? msg.tiles : []).map((t) => [t.id, t]));
           pictures.current = new Map((Array.isArray(msg.pictures) ? msg.pictures : []).map((p) => [p.id, p]));
           pieces.current = new Map((Array.isArray(msg.pieces) ? msg.pieces : []).map((p) => [p.id, p]));
+          offers.current = new Map((Array.isArray(msg.offers) ? msg.offers : []).map((o) => [o.id, o]));
           setSettings({ strip: msg.strip !== false, boxes: BOX_COUNTS.includes(msg.boxes) ? msg.boxes : 0 });
           renderTiles();
           bump();
@@ -379,6 +398,14 @@ export function useWhiteboard(role, send) {
           renderTiles();
           return true;
         }
+        case 'offer':
+          if (msg.offer?.id) offers.current.set(msg.offer.id, msg.offer);
+          renderTiles();
+          return true;
+        case 'offer:remove':
+          offers.current.delete(msg.id);
+          renderTiles();
+          return true;
         case 'piece:delete':
           pieces.current.delete(msg.id);
           renderTiles();
@@ -386,6 +413,7 @@ export function useWhiteboard(role, send) {
         case 'pieces':
           pieces.current = new Map((msg.pieces || []).map((p) => [p.id, p]));
           pictures.current = new Map((msg.pictures || []).map((p) => [p.id, p]));
+          offers.current = new Map((msg.offers || []).map((o) => [o.id, o]));
           if (!pictures.current.size) kept.current.clear();
           renderTiles();
           return true;
@@ -416,6 +444,8 @@ export function useWhiteboard(role, send) {
     pieces: [...pieces.current.values()],
     pictures: [...pictures.current.values()],
     pieceActions,
+    offers: [...offers.current.values()],
+    offerActions,
     addPicture,
     clearPictures,
     addTiles,

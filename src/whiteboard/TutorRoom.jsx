@@ -242,6 +242,7 @@ export default function TutorRoom() {
             pieceActions={wb.pieceActions}
             canEditPieces
             canDeletePieces
+            canDuplicatePieces
             stageApi={stageApi}
             letters={{ student: pointing, tutor: myMarker?.kind === 'hand' ? myMarker.letter : null }}
             tool={tool}
@@ -300,6 +301,10 @@ export default function TutorRoom() {
               canAdd
               onAddFile={(file) => wb.addPicture(file, room)}
               onClear={wb.clearPictures}
+              offers={wb.offers}
+              onOffer={wb.offerActions.give}
+              onWithdraw={wb.offerActions.withdraw}
+              onReset={wb.offerActions.reset}
               onPlace={wb.pieceActions.add}
               stageApi={stageApi}
               onShow={() => setSidePanel('pictures')}

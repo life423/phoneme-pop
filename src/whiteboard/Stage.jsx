@@ -144,6 +144,7 @@ export default function Stage({
   pieceActions = null,
   canEditPieces = false,
   canDeletePieces = false,
+  canDuplicatePieces = false,
   stageApi = null,
   tool = 'none',
   markers = [],
@@ -169,7 +170,7 @@ export default function Stage({
   const movable = tool === 'none' || tool === 'hand';
   const stackedPieces = [...pieces].sort((a, b) => a.z - b.z);
   const selectedPiece = movable ? pieces.find((p) => p.id === selectedPieceId) || null : null;
-  const pieceButtons = [canEditPieces && 'duplicate', canDeletePieces && 'delete'].filter(Boolean);
+  const pieceButtons = [canDuplicatePieces && 'duplicate', canDeletePieces && 'delete'].filter(Boolean);
   const bar = selectedPiece && pieceButtons.length ? toolbarOf(selectedPiece, pieceButtons) : null;
 
   // Where the letterboxed stage actually sits, so the ink canvases can line up with it.

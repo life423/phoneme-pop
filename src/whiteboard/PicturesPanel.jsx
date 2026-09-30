@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BoxSelect, Plus, Wand2 } from 'lucide-react';
+import { ArrowLeft, BoxSelect, Gift, Plus, Wand2 } from 'lucide-react';
 import { regionAt } from './regions.js';
 import { pictureRegions } from './pictures.js';
 import { MAX_PICTURES, startingWidth } from '../../shared/pieces.js';
 
 const DRAG_START = 6; // screen pixels a press moves before it becomes a drag
 const card = 'flex flex-col gap-3 rounded-2xl bg-white p-3 shadow';
+const primary =
+  'flex items-center justify-center gap-2 rounded-full bg-violet-600 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50';
+const secondary =
+  'flex items-center justify-center gap-2 rounded-full border border-violet-300 px-3 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50';
 
 const inside = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+const sameCrop = (a, b) => Boolean(a && b) && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 const boxFrom = (a, b) => ({
   x: Math.round(Math.min(a.x, b.x)),
   y: Math.round(Math.min(a.y, b.y)),
@@ -15,6 +20,9 @@ const boxFrom = (a, b) => ({
   h: Math.round(Math.abs(a.y - b.y)),
   r: 0,
 });
+// The smallest given part under a point.
+const offerAt = (list, p) =>
+  list.filter((o) => inside(p, o.crop)).sort((a, b) => a.crop.w * a.crop.h - b.crop.w * b.crop.h)[0] || null;
 
 // The part being dragged to the board, drawn under the finger.
 function Ghost({ src, pic, crop, width }) {
@@ -52,10 +60,37 @@ function Outline({ r, className, dashed = false }) {
   );
 }
 
-// The Pictures tab. The tutor adds pictures (a file, or paste); both people open one, pick a
-// part with Magic Select (or draw a box), and drag it onto the board. Parts are copies: the
-// picture itself stays whole, so the same part can be taken again.
-export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddFile, onClear, onPlace, stageApi, onShow }) {
+// A small label pinned to the top-left corner of a given part.
+function Badge({ offer, pic, children }) {
+  return (
+    <span
+      className='pointer-events-none absolute rounded-full bg-amber-300 px-2 py-0.5 text-[10px] font-bold text-slate-900 shadow'
+      style={{ left: `calc(${(offer.crop.x / pic.w) * 100}% + 4px)`, top: `calc(${(offer.crop.y / pic.h) * 100}% + 4px)` }}
+    >
+      {children}
+    </span>
+  );
+}
+
+// The Pictures tab. The tutor adds pictures (a file, or paste), lifts any part out with Magic
+// Select (or a drawn box), and chooses which parts the student may take: each one once, while
+// the student's tools are on. The student sees only those parts. Parts are copies, so the
+// picture itself stays whole.
+export default function PicturesPanel({
+  pictures,
+  offers = [],
+  srcFor,
+  canAdd = false,
+  onAddFile,
+  onClear,
+  onPlace,
+  onOffer,
+  onWithdraw,
+  onReset,
+  stageApi,
+  onShow,
+}) {
+  const student = !canAdd;
   const [openId, setOpenId] = useState(null);
   const [regions, setRegions] = useState([]);
   const [mode, setMode] = useState('magic');
@@ -70,16 +105,20 @@ export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddF
   const svgRef = useRef(null);
   const press = useRef(null);
 
-  const pic = pictures.find((p) => p.id === openId) || null;
+  // The student only sees pictures the tutor has given them a part of.
+  const shown = student ? pictures.filter((p) => offers.some((o) => o.pic === p.id)) : pictures;
+  const pic = shown.find((p) => p.id === openId) || null;
   const src = pic ? srcFor(pic.id) : null;
   const size = pic ? `${pic.w}x${pic.h}` : '';
+  const picOffers = pic ? offers.filter((o) => o.pic === pic.id) : [];
+  const available = picOffers.filter((o) => !o.taken);
 
-  // Each picture's parts are found once, when it's first opened.
+  // Each picture's parts are found once, when the tutor first opens it.
   useEffect(() => {
     setRegions([]);
     setSelection(null);
     setHover(null);
-    if (!src) return undefined;
+    if (!src || student) return undefined;
     const [w, h] = size.split('x').map(Number);
     let live = true;
     pictureRegions(src, { w, h }).then((found) => {
@@ -88,7 +127,7 @@ export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddF
     return () => {
       live = false;
     };
-  }, [src, size]);
+  }, [src, size, student]);
 
   const addFile = async (file) => {
     if (!file || !canAdd) return;
@@ -115,7 +154,7 @@ export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddF
   });
 
   // Puts a part on the board: where it was dropped, or in the middle of the board.
-  const place = (crop, clientX, clientY) => {
+  const place = (crop, clientX, clientY, offerId) => {
     const w = startingWidth(crop);
     const h = (w * crop.h) / crop.w;
     let at = { x: 800, y: 580 };
@@ -123,7 +162,8 @@ export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddF
       at = stageApi?.current?.pointAt(clientX, clientY);
       if (!at) return false;
     }
-    onPlace({ pic: pic.id, crop, x: at.x - w / 2, y: at.y - h / 2, w });
+    onPlace({ offer: offerId, pic: pic.id, crop, x: at.x - w / 2, y: at.y - h / 2, w });
+    if (student) setSelection(null);
     return true;
   };
 
@@ -135,7 +175,11 @@ export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddF
     };
   };
 
-  // Press on a part (or the selection) to pick it up; press anywhere else to draw a box.
+  const pickUp = (event, part, offerId) => {
+    press.current = { kind: 'part', part, offer: offerId, sx: event.clientX, sy: event.clientY, dragging: false };
+  };
+
+  // Press on a part to pick it up. The tutor can also press anywhere else to draw a box.
   const onDown = (event) => {
     event.preventDefault();
     try {
@@ -145,16 +189,25 @@ export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddF
     }
     setNote(null);
     const p = toPic(event);
+    if (student) {
+      const offer = offerAt(available, p);
+      if (!offer) return;
+      setSelection(offer.crop);
+      pickUp(event, offer.crop, offer.id);
+      return;
+    }
     let part = selection && inside(p, selection) ? selection : null;
+    if (!part) {
+      const offer = offerAt(picOffers, p);
+      if (offer) part = offer.crop;
+    }
     if (!part && mode === 'magic') {
       const region = regionAt(regions, p.x, p.y);
-      if (region) {
-        part = { x: region.x, y: region.y, w: region.w, h: region.h, r: region.r };
-        setSelection(part);
-      }
+      if (region) part = { x: region.x, y: region.y, w: region.w, h: region.h, r: region.r };
     }
     if (part) {
-      press.current = { kind: 'part', part, sx: event.clientX, sy: event.clientY, dragging: false };
+      setSelection(part);
+      pickUp(event, part);
     } else {
       press.current = { kind: 'box', start: p };
       setBox(boxFrom(p, p));
@@ -164,10 +217,10 @@ export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddF
   const onMove = (event) => {
     const current = press.current;
     if (!current) {
-      if (mode === 'magic' && event.pointerType === 'mouse') {
-        const p = toPic(event);
-        setHover(regionAt(regions, p.x, p.y));
-      }
+      if (event.pointerType !== 'mouse') return;
+      const p = toPic(event);
+      if (student) setHover(offerAt(available, p)?.crop || null);
+      else if (mode === 'magic') setHover(regionAt(regions, p.x, p.y));
       return;
     }
     if (current.kind === 'box') {
@@ -192,15 +245,20 @@ export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddF
       return;
     }
     setGhost(null);
-    if (current.dragging && event.type === 'pointerup' && !place(current.part, event.clientX, event.clientY)) {
+    if (current.dragging && event.type === 'pointerup' && !place(current.part, event.clientX, event.clientY, current.offer)) {
       setNote('Drop it on the board to place it.');
     }
   };
 
   if (pic) {
+    const offered = !student && selection ? picOffers.find((o) => sameCrop(o.crop, selection)) : null;
+    const chosen = student && selection ? available.find((o) => sameCrop(o.crop, selection)) : null;
     let hint = 'Tap a part to select it, or drag across the picture to draw a box.';
     if (mode === 'box') hint = 'Drag across the picture to draw a box around what you want.';
-    if (selection) hint = 'Drag the selected part onto the board, or use Add to board.';
+    if (selection) hint = 'Drag the selected part onto the board, or use the buttons below.';
+    if (offered) hint = offered.taken ? 'Your student has taken this part.' : 'Your student can take this part once, while their tools are on.';
+    if (student) hint = available.length ? 'Drag the bright part onto the board. You can take it once.' : 'You’ve used the part your tutor gave you.';
+    const dim = `M0 0H${pic.w}V${pic.h}H0Z${available.map((o) => `M${o.crop.x} ${o.crop.y}h${o.crop.w}v${o.crop.h}h${-o.crop.w}Z`).join('')}`;
     return (
       <section aria-label='Pictures' className={card}>
         <button
@@ -217,47 +275,72 @@ export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddF
             ref={svgRef}
             viewBox={`0 0 ${pic.w} ${pic.h}`}
             preserveAspectRatio='none'
-            className='absolute inset-0 h-full w-full cursor-crosshair touch-none'
+            className={`absolute inset-0 h-full w-full touch-none ${student ? 'cursor-pointer' : 'cursor-crosshair'}`}
             role='img'
-            aria-label='Picture. Tap a part to select it, then drag it onto the board.'
+            aria-label={student ? 'Picture. Drag the bright part onto the board.' : 'Picture. Tap a part to select it, then drag it onto the board.'}
             onPointerDown={onDown}
             onPointerMove={onMove}
             onPointerUp={onUp}
             onPointerCancel={onUp}
             onPointerLeave={() => setHover(null)}
           >
-            {hover && hover !== selection && <Outline r={hover} dashed className='fill-violet-500/10 stroke-violet-400' />}
+            {student && <path d={dim} fillRule='evenodd' className='fill-slate-900/50' />}
+            {(student ? available : picOffers).map((o) => (
+              <Outline key={o.id} r={o.crop} className='fill-none stroke-amber-400' />
+            ))}
+            {hover && !sameCrop(hover, selection) && <Outline r={hover} dashed className='fill-violet-500/10 stroke-violet-400' />}
             {selection && <Outline r={selection} className='fill-violet-500/15 stroke-violet-600' />}
             {box && <Outline r={box} dashed className='fill-sky-500/10 stroke-sky-600' />}
           </svg>
+          {picOffers
+            .filter((o) => !student || o.taken)
+            .map((o) => (
+              <Badge key={o.id} offer={o} pic={pic}>
+                {student ? 'Used' : o.taken ? 'Taken' : 'For student'}
+              </Badge>
+            ))}
         </div>
-        <div role='group' aria-label='How to select' className='grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1'>
-          {[
-            ['magic', 'Magic select', Wand2],
-            ['box', 'Draw a box', BoxSelect],
-          ].map(([value, label, Icon]) => (
-            <button
-              key={value}
-              type='button'
-              aria-pressed={mode === value}
-              onClick={() => setMode(value)}
-              className={`flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-bold ${
-                mode === value ? 'bg-white text-violet-700 shadow' : 'text-slate-600 hover:text-violet-700'
-              }`}
-            >
-              <Icon className='h-4 w-4' aria-hidden='true' />
-              {label}
-            </button>
-          ))}
-        </div>
+        {!student && (
+          <div role='group' aria-label='How to select' className='grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1'>
+            {[
+              ['magic', 'Magic select', Wand2],
+              ['box', 'Draw a box', BoxSelect],
+            ].map(([value, label, Icon]) => (
+              <button
+                key={value}
+                type='button'
+                aria-pressed={mode === value}
+                onClick={() => setMode(value)}
+                className={`flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-bold ${
+                  mode === value ? 'bg-white text-violet-700 shadow' : 'text-slate-600 hover:text-violet-700'
+                }`}
+              >
+                <Icon className='h-4 w-4' aria-hidden='true' />
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         <p className='text-xs text-slate-500'>{hint}</p>
-        {selection && (
-          <button
-            type='button'
-            onClick={() => place(selection)}
-            className='rounded-full bg-violet-600 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-700'
-          >
+        {selection && (!student || chosen) && (
+          <button type='button' onClick={() => place(selection, undefined, undefined, chosen?.id)} className={primary}>
             Add to board
+          </button>
+        )}
+        {!student && selection && !offered && (
+          <button type='button' onClick={() => onOffer({ pic: pic.id, crop: selection })} className={secondary}>
+            <Gift className='h-4 w-4' aria-hidden='true' />
+            Give to student
+          </button>
+        )}
+        {offered?.taken && (
+          <button type='button' onClick={() => onReset(offered.id)} className={secondary}>
+            Let them take it again
+          </button>
+        )}
+        {offered && (
+          <button type='button' onClick={() => onWithdraw(offered.id)} className='text-xs font-semibold text-slate-500 hover:text-rose-600'>
+            Take it back from your student
           </button>
         )}
         {note && (
@@ -281,9 +364,11 @@ export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddF
     <section aria-label='Pictures' className={card}>
       <div className='flex items-center justify-between'>
         <h2 className='text-sm font-bold text-slate-700'>Pictures</h2>
-        <span className='text-xs font-semibold text-slate-500'>
-          {pictures.length}/{MAX_PICTURES}
-        </span>
+        {!student && (
+          <span className='text-xs font-semibold text-slate-500'>
+            {pictures.length}/{MAX_PICTURES}
+          </span>
+        )}
       </div>
       {canAdd && (
         <>
@@ -291,7 +376,7 @@ export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddF
             type='button'
             disabled={busy || pictures.length >= MAX_PICTURES}
             onClick={() => fileRef.current?.click()}
-            className='flex items-center justify-center gap-2 rounded-full bg-violet-600 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50'
+            className={primary}
           >
             <Plus className='h-4 w-4' aria-hidden='true' />
             {busy ? 'Adding…' : 'Add picture'}
@@ -315,13 +400,13 @@ export default function PicturesPanel({ pictures, srcFor, canAdd = false, onAddF
           {note}
         </p>
       )}
-      {pictures.length === 0 ? (
+      {shown.length === 0 ? (
         <p className='text-sm text-slate-500'>
-          {canAdd ? 'Add a worksheet or picture, then lift parts out of it with Magic Select.' : 'Your tutor hasn’t added any pictures yet.'}
+          {student ? 'Your tutor hasn’t given you a part to use yet.' : 'Add a worksheet or picture, then lift parts out of it with Magic Select.'}
         </p>
       ) : (
         <ul className='-mx-1 flex max-h-[45vh] flex-col gap-2 overflow-y-auto px-1'>
-          {pictures.map((p, i) => (
+          {shown.map((p, i) => (
             <li key={p.id}>
               <button
                 type='button'

@@ -487,10 +487,42 @@ describe('pictures and pieces', () => {
     await tutor.take('piece:drop');
     tutor.send({ t: 'tools', on: true });
     await student.take('tools');
-    student.send({ t: 'piece:add', piece: newPiece('s2') });
-    expect((await tutor.take('piece:add')).piece.id).toBe('s2');
-    student.send({ t: 'piece:delete', id: 's2' });
+    student.send({ t: 'piece:add', piece: newPiece('s2') }); // no part given to them
+    await nothing(tutor, 'piece:add');
+    student.send({ t: 'piece:delete', id: 't1' });
     await nothing(tutor, 'piece:delete');
+  });
+
+  it('lets the student take only the part the tutor gave them, once, with their tools on', async () => {
+    const { tutor, code, key } = await openRoom();
+    const { student } = await joinRoom(code);
+    addPicture(code, key);
+    tutor.send({ t: 'offer:add', offer: { id: 'o1', pic: PIC, crop: photo } });
+    expect((await student.take('offer')).offer).toMatchObject({ id: 'o1', crop: photo, taken: false });
+    await tutor.take('offer');
+    student.send({ t: 'piece:add', piece: newPiece('s1', { offer: 'o1' }) }); // tools still off
+    await nothing(tutor, 'piece:add');
+    tutor.send({ t: 'tools', on: true });
+    await student.take('tools');
+    const wholeCard = { x: 0, y: 0, w: 976, h: 974 };
+    student.send({ t: 'piece:add', piece: newPiece('s2', { offer: 'o1', crop: wholeCard }) });
+    expect((await tutor.take('piece:add')).piece.crop).toEqual(photo); // the given part, not what was asked
+    expect((await tutor.take('offer')).offer.taken).toBe(true);
+    await student.take('offer');
+    student.send({ t: 'piece:add', piece: newPiece('s3', { offer: 'o1' }) }); // only once
+    await nothing(tutor, 'piece:add');
+    tutor.send({ t: 'offer:reset', id: 'o1' });
+    expect((await student.take('offer')).offer.taken).toBe(false);
+    student.send({ t: 'piece:add', piece: newPiece('s4', { offer: 'o1' }) });
+    expect((await tutor.take('piece:add')).piece.id).toBe('s4');
+  });
+
+  it('only lets the tutor give parts to the student', async () => {
+    const { tutor, code, key } = await openRoom();
+    const { student } = await joinRoom(code);
+    addPicture(code, key);
+    student.send({ t: 'offer:add', offer: { id: 'o1', pic: PIC, crop: photo } });
+    await nothing(tutor, 'offer');
   });
 
   it('forgets the pictures when the tutor clears them or the room closes', async () => {
