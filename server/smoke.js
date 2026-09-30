@@ -52,7 +52,16 @@ const stroke = await drawn;
 if (stroke.by !== 'student' || stroke.tool !== 'pen') throw new Error(`stroke arrived as ${JSON.stringify(stroke)}`);
 say(student, { t: 'e', id: 'smoke' });
 
+const added = next(student, 'tile:add');
+say(tutor, { t: 'tile:add', tiles: [{ id: 'smoketile', text: 'sh' }] });
+const [tile] = (await added).tiles;
+const dropped = next(tutor, 'tile:drop');
+say(student, { t: 'tile:grab', id: tile.id });
+say(student, { t: 'tile:drop', id: tile.id, x: 700, y: 600 });
+const drop = await dropped;
+if (drop.tile.x !== 700 || drop.tile.y !== 600) throw new Error(`tile arrived as ${JSON.stringify(drop.tile)}`);
+
 say(tutor, { t: 'end' });
-console.log(`Realtime OK: room ${code} relayed a pointer and a pen stroke over ${url}`);
+console.log(`Realtime OK: room ${code} relayed a pointer, a pen stroke and a tile drag over ${url}`);
 tutor.close();
 student.close();

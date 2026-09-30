@@ -7,6 +7,7 @@ import Stage from './Stage.jsx';
 import { INK } from './board.js';
 import { PARKED_HAND, STAGE, letterAt } from './stage.js';
 import { ClearButton, Switch, ToolButton, ToolRail } from './Toolbar.jsx';
+import TileBar from './TileBar.jsx';
 import { CopyButton, MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
 
 const SAVED = 'wb-tutor';
@@ -29,6 +30,7 @@ export default function TutorRoom() {
   const [tool, setTool] = useState('none');
   const [busy, setBusy] = useState(false);
   const [tip, setTip] = useState(null);
+  const [selectedTileId, setSelectedTileId] = useState(null); // clicked, ready to change
   const [studentMarker, setStudentMarker] = useFrameState(null);
   const [myMarker, setMyMarker] = useFrameState(null);
   const roomRef = useRef(room);
@@ -88,6 +90,7 @@ export default function TutorRoom() {
 
   useEffect(() => {
     const onKey = (event) => {
+      if (event.target instanceof HTMLInputElement) return; // leave typing alone
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'z') {
         event.preventDefault();
         wb.undo();
@@ -126,7 +129,7 @@ export default function TutorRoom() {
       return;
     }
     const p = lastPoint.current;
-    if (p) share({ ...p, letter: letterAt(p.x, p.y) }, next);
+    if (p) share({ ...p, letter: letterAt(p.x, p.y, wb.strip) }, next);
   };
 
   const onPoint = (p) => share(p, tool);
@@ -170,6 +173,7 @@ export default function TutorRoom() {
         </div>
         {pill}
         <Switch checked={studentTools} onChange={(on) => send({ t: 'tools', on })} label='Student tools' />
+        <Switch checked={wb.strip} onChange={wb.setStrip} label='Alphabet strip' />
         <p className='min-w-[9rem] text-base text-slate-700'>
           {activity || (
             <>
@@ -211,9 +215,17 @@ export default function TutorRoom() {
           <ToolButton icon={Undo2} label='Undo' disabled={!wb.canUndo} onClick={wb.undo} />
           <ClearButton icon={Trash2} onClear={() => send({ t: 'clear' })} />
         </ToolRail>
+        <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-2'>
         <main className='relative min-h-0 flex-1'>
           <Stage
             board={wb.board}
+            me='tutor'
+            strip={wb.strip}
+            boxes={wb.boxes}
+            tiles={wb.tiles}
+            selectedTile={selectedTileId}
+            canManageTiles
+            tileActions={{ ...wb.tileActions, select: setSelectedTileId }}
             letters={{ student: pointing, tutor: myMarker?.kind === 'hand' ? myMarker.letter : null }}
             tool={tool}
             markers={markers}
@@ -228,6 +240,22 @@ export default function TutorRoom() {
           )}
           {studentHere && tip && <StageNotice>{tip}</StageNotice>}
         </main>
+        <TileBar
+          count={wb.tiles.length}
+          selected={wb.tiles.find((t) => t.id === selectedTileId) || null}
+          onAdd={wb.addTiles}
+          onEdit={(text) => {
+            const ok = wb.editTile(selectedTileId, text);
+            if (ok) setSelectedTileId(null);
+            return ok;
+          }}
+          onCancelEdit={() => setSelectedTileId(null)}
+          onReset={wb.resetTiles}
+          onClear={wb.clearTiles}
+          boxes={wb.boxes}
+          onBoxes={wb.setBoxes}
+        />
+        </div>
       </div>
     </div>
   );

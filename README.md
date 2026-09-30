@@ -34,6 +34,8 @@ Because rooms live in memory, the Container App runs exactly one replica.
 
 Tools: the tutor has their own hand (a blue glove), a blue pen, an eraser, undo and a two-tap clear, and can drag the student's hand to guide it. The student's toolbar (hand, black pen, eraser, undo) appears only while the tutor has Student tools switched on, and the server enforces that. The board is one ordered list of strokes: ink sits on two layers so the student's eraser can't touch the tutor's writing, and each person's undo only takes back their own strokes. After a restart, the tutor's browser hands the board back to the server.
 
+Letter tiles: the tutor types tiles into the bar under the board (spaces separate them, so sh stays one tile), and they line up on a tray along the bottom. Both people can drag them; whoever is dragging a tile holds it until they drop it. The tutor can delete a tile, click one to change its letters (for word chains like map, mat, sat), send them all back to the tray, or clear them, and can turn on 2 to 5 sound boxes that tiles snap into. Tiles are coloured by kind (vowel, consonant, letter team), stored on each tile so a different scheme can be added later. The tutor can also hide the alphabet strip for both screens; the board grows into its space without moving anything. Tile rules and geometry live in shared/tiles.js, used by both the browser and the server.
+
 ## Content notes
 
 - Words live in `src/data/wordLists.js`. In `display`, vowels carry a breve (short) or macron (long), and `[brackets]` mark letters that make one sound together; they render underlined.

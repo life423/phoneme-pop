@@ -1,5 +1,6 @@
 import { WebSocketServer } from 'ws';
 import { randomBytes, randomInt } from 'node:crypto';
+import { BOX_COUNTS, MAX_TILES, clampTile, cleanTileText, nextHome, snapTile, tileKind } from '../shared/tiles.js';
 
 // Live rooms for the Alphabet Whiteboard: one tutor and one student per room.
 // Pointers go both ways. The board is an ordered list of strokes (pen ink or
@@ -91,8 +92,18 @@ export function attachRealtime(server, options = {}) {
   const boardMessage = (room) => ({
     t: 'board',
     tools: room.tools,
+    strip: room.strip,
+    boxes: room.boxes,
     strokes: room.strokes.map(({ id, by, tool, pts, seq }) => ({ id, by, tool, pts, seq })),
+    tiles: [...room.tiles.values()],
   });
+
+  const broadcast = (room, msg) => {
+    send(room.tutor, msg);
+    send(room.student, msg);
+  };
+
+  const isTutor = (ws) => Boolean(ws.room && ws.room.tutor === ws);
 
   const broadcastBoard = (room) => {
     const msg = boardMessage(room);
@@ -115,6 +126,17 @@ export function attachRealtime(server, options = {}) {
     send(otherSide(room, stroke.by), { t: 'e', id: stroke.id });
   };
 
+  // Lets go of any tile this socket was dragging.
+  const releaseTiles = (ws, room) => {
+    const role = room.tutor === ws ? 'tutor' : room.student === ws ? 'student' : null;
+    if (!role) return;
+    for (const tile of room.tiles.values()) {
+      if (tile.heldBy !== role) continue;
+      tile.heldBy = null;
+      send(otherSide(room, role), { t: 'tile:drop', tile });
+    }
+  };
+
   const closeRoom = (room, reason) => {
     clearTimeout(room.closeTimer);
     if (rooms.get(room.code) === room) rooms.delete(room.code);
@@ -130,6 +152,7 @@ export function attachRealtime(server, options = {}) {
     const room = ws.room;
     if (!room) return;
     finishStroke(ws, room);
+    releaseTiles(ws, room);
     ws.room = null;
     if (room.tutor === ws) {
       room.tutor = null;
@@ -191,6 +214,11 @@ export function attachRealtime(server, options = {}) {
           strokeById: new Map(),
           seq: 0,
           pointers: {}, // last known pointer of each person, for whoever (re)joins
+          tiles: new Map(),
+          zTop: 0, // stacking order: the tile picked up last sits on top
+          order: 0, // creation order, for packing the tray
+          strip: true,
+          boxes: 0,
           // After a restart the tutor's browser hands back its copy of the board.
           restoring: reuse,
         };
@@ -355,7 +383,128 @@ export function attachRealtime(server, options = {}) {
       if (!room || room.tutor !== ws || !room.restoring) return;
       room.restoring = false;
       room.tools = Boolean(msg.tools);
+      room.strip = msg.strip !== false;
+      room.boxes = BOX_COUNTS.includes(msg.boxes) ? msg.boxes : 0;
       broadcastBoard(room);
+    },
+
+    // Tutor only: new tiles line up on the tray, in the order typed.
+    'tile:add'(ws, msg) {
+      const room = ws.room;
+      if (!isTutor(ws) || !Array.isArray(msg.tiles)) return;
+      const added = [];
+      for (const item of msg.tiles.slice(0, MAX_TILES)) {
+        const text = cleanTileText(item && item.text);
+        if (room.tiles.size >= MAX_TILES || !text || !isStrokeId(item.id) || room.tiles.has(item.id)) continue;
+        const home = nextHome([...room.tiles.values()], text);
+        room.zTop += 1;
+        room.order += 1;
+        const tile = { id: item.id, text, kind: tileKind(text), x: home.hx, y: home.hy, ...home, z: room.zTop, order: room.order, heldBy: null };
+        room.tiles.set(tile.id, tile);
+        added.push(tile);
+      }
+      if (added.length) broadcast(room, { t: 'tile:add', tiles: added });
+    },
+
+    // Either person picks up a tile; it's theirs until they drop it, so nobody fights over it.
+    'tile:grab'(ws, msg) {
+      const role = roleOf(ws);
+      const tile = role && ws.room.tiles.get(msg.id);
+      if (!tile || !allow(ws, 'tile', POINTER_PER_SECOND)) return;
+      if (tile.heldBy && tile.heldBy !== role) return send(ws, { t: 'tile:denied', tile });
+      ws.room.zTop += 1;
+      tile.z = ws.room.zTop;
+      tile.heldBy = role;
+      broadcast(ws.room, { t: 'tile:grab', id: tile.id, by: role, z: tile.z });
+    },
+
+    'tile:move'(ws, msg) {
+      const role = roleOf(ws);
+      const tile = role && ws.room.tiles.get(msg.id);
+      if (!tile || tile.heldBy !== role || !allow(ws, 'tile', POINTER_PER_SECOND)) return;
+      const pos = clampTile(tile.text, msg.x, msg.y);
+      if (!pos) return;
+      Object.assign(tile, pos);
+      send(otherSide(ws.room, role), { t: 'tile:move', id: tile.id, x: tile.x, y: tile.y });
+    },
+
+    // Dropping settles the tile (into a sound box, if it lands on a free one) and lets go.
+    'tile:drop'(ws, msg) {
+      const role = roleOf(ws);
+      const room = ws.room;
+      const tile = role && room.tiles.get(msg.id);
+      if (!tile) return;
+      if (tile.heldBy !== role) return send(ws, { t: 'tile:denied', tile });
+      Object.assign(tile, clampTile(tile.text, msg.x, msg.y) || {});
+      Object.assign(tile, snapTile(tile, room.boxes, [...room.tiles.values()]) || {});
+      tile.heldBy = null;
+      broadcast(room, { t: 'tile:drop', tile });
+    },
+
+    'tile:delete'(ws, msg) {
+      if (!isTutor(ws) || !ws.room.tiles.delete(msg.id)) return;
+      broadcast(ws.room, { t: 'tile:delete', id: msg.id });
+    },
+
+    // Tutor only: swap a tile's letters in place, for word chains (map, mat, sat).
+    'tile:edit'(ws, msg) {
+      const tile = isTutor(ws) && ws.room.tiles.get(msg.id);
+      const text = cleanTileText(msg.text);
+      if (!tile || !text) return;
+      tile.text = text;
+      tile.kind = tileKind(text);
+      Object.assign(tile, clampTile(text, tile.x, tile.y));
+      broadcast(ws.room, { t: 'tile:edit', tile });
+    },
+
+    // Tutor only: every tile back to its home on the tray, packed so there are no gaps.
+    'tiles:reset'(ws) {
+      if (!isTutor(ws)) return;
+      const ordered = [...ws.room.tiles.values()].sort((a, b) => a.order - b.order);
+      const placed = [];
+      for (const tile of ordered) {
+        Object.assign(tile, nextHome(placed, tile.text));
+        tile.x = tile.hx;
+        tile.y = tile.hy;
+        tile.heldBy = null;
+        placed.push(tile);
+      }
+      broadcast(ws.room, { t: 'tiles', tiles: ordered });
+    },
+
+    'tiles:clear'(ws) {
+      if (!isTutor(ws)) return;
+      ws.room.tiles.clear();
+      broadcast(ws.room, { t: 'tiles', tiles: [] });
+    },
+
+    // Tutor only: show or hide the alphabet strip on both screens.
+    'strip:set'(ws, msg) {
+      if (!isTutor(ws)) return;
+      ws.room.strip = Boolean(msg.on);
+      broadcast(ws.room, { t: 'strip:set', on: ws.room.strip });
+    },
+
+    // Tutor only: sound boxes off (0) or 2 to 5 of them.
+    'boxes:set'(ws, msg) {
+      if (!isTutor(ws) || !BOX_COUNTS.includes(msg.count)) return;
+      ws.room.boxes = msg.count;
+      broadcast(ws.room, { t: 'boxes:set', count: ws.room.boxes });
+    },
+
+    // Tutor only, right after a restart: one tile of the board they kept.
+    'rs-tile'(ws, msg) {
+      const room = ws.room;
+      if (!isTutor(ws) || !room.restoring || room.tiles.size >= MAX_TILES) return;
+      const t = msg.tile || {};
+      const text = cleanTileText(t.text);
+      if (!text || !isStrokeId(t.id) || room.tiles.has(t.id)) return;
+      const pos = clampTile(text, t.x, t.y);
+      const home = clampTile(text, t.hx, t.hy);
+      if (!pos || !home) return;
+      room.zTop += 1;
+      room.order += 1;
+      room.tiles.set(t.id, { id: t.id, text, kind: tileKind(text), ...pos, hx: home.x, hy: home.y, z: room.zTop, order: room.order, heldBy: null });
     },
 
     end(ws) {
