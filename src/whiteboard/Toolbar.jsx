@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 
 export function ToolRail({ label, children }) {
   return (
-    <nav aria-label={label} className='flex shrink-0 flex-col gap-1.5 self-center rounded-2xl bg-white p-2 shadow'>
+    <nav
+      aria-label={label}
+      className='flex shrink-0 flex-col justify-center gap-1 self-center rounded-2xl bg-white p-1.5 shadow max-lg:portrait:flex-row lg:gap-1.5 lg:p-2'
+    >
       {children}
     </nav>
   );
@@ -18,7 +21,8 @@ export function ToolButton({ icon: Icon, label, pressed, disabled = false, dange
       onClick={onClick}
       disabled={disabled}
       aria-pressed={pressed}
-      className={`flex w-16 flex-col items-center gap-1 rounded-xl px-1 py-2 text-xs font-bold transition-colors disabled:opacity-30 ${tone}`}
+      title={label}
+      className={`flex w-11 flex-col items-center gap-1 rounded-xl px-1 py-2 text-xs font-bold transition-colors disabled:opacity-30 sm:w-14 lg:w-16 ${tone}`}
     >
       <span className='relative'>
         <Icon className='h-6 w-6' aria-hidden='true' />
@@ -29,7 +33,7 @@ export function ToolButton({ icon: Icon, label, pressed, disabled = false, dange
           />
         )}
       </span>
-      {label}
+      <span className='max-sm:sr-only'>{label}</span>
     </button>
   );
 }

@@ -35,8 +35,9 @@ for (const size of SIZES) {
   const tutor = await tutorContext.newPage();
   await tutor.goto(`${BASE}/whiteboard`);
   await tutor.getByRole('button', { name: 'Start a session' }).click();
-  await tutor.waitForFunction(() => /Code\s*\d{4}/.test(document.body.innerText));
-  const code = await tutor.evaluate(() => document.body.innerText.match(/Code\s*(\d{4})/)[1]);
+  // The room code is the only four-digit number in the header.
+  await tutor.waitForFunction(() => [...document.querySelectorAll('header span')].map((el) => el.textContent.trim()).find((t) => /^\d{4}$/.test(t)));
+  const code = await tutor.evaluate(() => [...document.querySelectorAll('header span')].map((el) => el.textContent.trim()).find((t) => /^\d{4}$/.test(t)));
   const studentContext = await browser.newContext(options);
   const student = await studentContext.newPage();
   await student.goto(`${BASE}/whiteboard/${code}`);

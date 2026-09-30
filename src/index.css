@@ -10,3 +10,17 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+/* The whiteboard keeps its 16:10 shape. Wide screens fit it to the height beside the tools
+   and the side column. */
+.wb-board {
+  aspect-ratio: 1600 / 1000;
+}
+@media (min-width: 1024px) {
+  .wb-board {
+    height: 100%;
+  }
+}
+/* Narrower screens: as big as fits in the space left for it, by width or by height. */
+.wb-board-fit {
+  width: min(100cqw, 160cqh);
+}

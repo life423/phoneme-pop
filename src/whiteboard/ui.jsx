@@ -1,17 +1,55 @@
-import { useState } from 'react';
-import { ArrowLeft, Check, Copy } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Check, Copy, Maximize2, MoreHorizontal } from 'lucide-react';
 import { Link } from '../router.jsx';
 
-export function TopBar({ back, title, children }) {
+// The header. `children` are the essentials, always shown. `menu` holds the session controls:
+// in the bar on wide screens, behind a settings button on narrower ones. `end` (End session,
+// Leave) always sits at the far right. On phones a room header drops its title for space.
+export function TopBar({ back, title, children, menu, end }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (event) => {
+      if (!ref.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [open]);
+  const room = Boolean(menu || end);
   return (
-    <header className='flex flex-wrap items-center gap-x-4 gap-y-2 bg-white px-3 py-2 shadow-sm sm:px-4'>
+    <header
+      ref={ref}
+      className={`relative z-30 flex items-center gap-x-3 gap-y-2 bg-white px-3 py-2 shadow-sm sm:px-4 ${room ? 'xl:flex-wrap xl:gap-x-4' : 'flex-wrap gap-x-4'}`}
+    >
       {back && (
         <Link to={back} aria-label='Back' className='rounded-full p-2 text-violet-700 hover:bg-violet-100'>
           <ArrowLeft className='h-5 w-5' aria-hidden='true' />
         </Link>
       )}
-      <h1 className='text-lg font-bold text-violet-800 sm:text-xl'>{title}</h1>
-      <div className='flex flex-1 flex-wrap items-center justify-end gap-x-4 gap-y-2'>{children}</div>
+      <h1 className={`shrink-0 text-lg font-bold text-violet-800 sm:text-xl ${room ? 'hidden sm:block' : ''}`}>{title}</h1>
+      <div className={`flex min-w-0 flex-1 items-center justify-end gap-x-2 gap-y-2 sm:gap-x-4 ${room ? 'xl:flex-wrap' : 'flex-wrap'}`}>
+        {children}
+        {menu && <div className='hidden items-center gap-x-4 gap-y-2 xl:flex xl:flex-wrap'>{menu}</div>}
+        {menu && (
+          <button
+            type='button'
+            aria-expanded={open}
+            aria-label='Session menu'
+            title='Session menu'
+            onClick={() => setOpen((was) => !was)}
+            className={`rounded-full p-2 xl:hidden ${open ? 'bg-violet-100 text-violet-800' : 'text-slate-700 hover:bg-slate-100'}`}
+          >
+            <MoreHorizontal className='h-5 w-5' aria-hidden='true' />
+          </button>
+        )}
+        {end}
+      </div>
+      {menu && open && (
+        <div className='absolute right-2 top-full z-40 mt-2 flex w-72 max-w-[calc(100vw-1rem)] flex-col items-start gap-3 rounded-2xl bg-white p-4 shadow-xl ring-1 ring-slate-200 xl:hidden'>
+          {menu}
+        </div>
+      )}
     </header>
   );
 }
@@ -24,17 +62,38 @@ const TONES = {
 
 export function StatusPill({ tone, children }) {
   return (
-    <span role='status' className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold ${TONES[tone]}`}>
+    <span
+      role='status'
+      title={typeof children === 'string' ? children : undefined}
+      className={`inline-flex shrink-0 items-center gap-2 rounded-full px-2 py-2 text-sm font-semibold sm:px-3 sm:py-1 ${TONES[tone]}`}
+    >
       <span className='h-2 w-2 rounded-full bg-current' aria-hidden='true' />
-      {children}
+      {/* On phones just the coloured dot shows; the words stay for screen readers. */}
+      <span className='max-sm:sr-only'>{children}</span>
     </span>
+  );
+}
+
+// Focus mode: just the board, with everything else tucked away.
+export function FocusButton({ onClick }) {
+  return (
+    <button
+      type='button'
+      onClick={onClick}
+      className='inline-flex items-center gap-1.5 rounded-full border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 hover:bg-slate-50'
+    >
+      <Maximize2 className='h-4 w-4' aria-hidden='true' />
+      Focus mode
+    </button>
   );
 }
 
 export function StageNotice({ children }) {
   return (
-    <div className='pointer-events-none absolute inset-x-0 top-[22%] flex justify-center px-4'>
-      <p className='rounded-full bg-slate-900/80 px-5 py-2 text-center text-base font-semibold text-white shadow-lg'>{children}</p>
+    <div className='pointer-events-none absolute inset-x-0 top-[22%] flex justify-center px-3 sm:px-4'>
+      <p className='rounded-2xl bg-slate-900/80 px-3 py-1.5 text-center text-sm font-semibold text-white shadow-lg sm:rounded-full sm:px-5 sm:py-2 sm:text-base'>
+        {children}
+      </p>
     </div>
   );
 }
