@@ -87,8 +87,10 @@ function FloatingVideo({ children }) {
   );
 }
 
-// The bar at the bottom of narrower screens, and the sheet it opens. Tap the bar or a tab to
-// open it, or pull it up; pull it up again for more room, pull it down to shrink or close it.
+// The bar at the bottom of narrower screens, and the sheet it opens. It has three positions:
+// collapsed (just the bar), half open and expanded. Swipe up or down to move a position (a long
+// swipe goes all the way); tap the handle to open or close it; tap a tab to open that panel.
+// The sheet takes its room from the board area rather than covering it.
 const PULLED = {
   up: { closed: 'open', open: 'full', full: 'full' },
   down: { closed: 'closed', open: 'closed', full: 'open' },
@@ -105,21 +107,27 @@ function PanelSheet({ panels, active, state, onState, onTab, hidden }) {
   };
   const onMove = (event) => {
     const p = pull.current;
-    if (!p || p.id !== event.pointerId || p.moved || Math.abs(event.clientY - p.y) < 24) return;
-    p.moved = true;
-    onState(PULLED[event.clientY < p.y ? 'up' : 'down'][state]);
+    if (p && p.id === event.pointerId && Math.abs(event.clientY - p.y) >= 12) p.moved = true;
   };
-  const onUp = () => {
+  const onUp = (event) => {
     const p = pull.current;
     pull.current = null;
-    if (!p || p.moved) return;
+    if (!p) return;
+    const dy = event.clientY - p.y;
+    if (Math.abs(dy) >= 24) {
+      const far = Math.abs(dy) > 160;
+      if (dy < 0) onState(far ? 'full' : PULLED.up[state]);
+      else onState(far ? 'closed' : PULLED.down[state]);
+      return;
+    }
+    if (p.moved) return;
     if (p.tab) onTab(p.tab);
-    else onState(open ? 'closed' : 'open'); // a tap on the bar itself
+    else onState(open ? 'closed' : 'open'); // a tap on the handle toggles it
   };
   return (
     <div
-      className={`absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-3xl bg-white shadow-[0_-8px_24px_rgba(15,23,42,0.12)] ${
-        state === 'full' ? 'max-h-[92%]' : 'max-h-[62%]'
+      className={`relative z-30 flex shrink-0 flex-col rounded-t-3xl bg-white shadow-[0_-8px_24px_rgba(15,23,42,0.12)] ${
+        { closed: '', open: 'h-[50%]', full: 'h-[88%]' }[state]
       } ${hidden ? 'hidden' : ''}`}
     >
       <div
@@ -256,7 +264,7 @@ export default function WhiteboardLayout({ header, banner, tools, board, call, p
     <div className='relative flex h-dvh flex-col overflow-hidden bg-slate-200'>
       {!focus && header}
       {!focus && banner}
-      <div className={`relative min-h-0 flex-1 p-2 ${panels.length && !focus ? 'pb-[5.25rem]' : ''}`}>
+      <div className='relative min-h-0 flex-1 p-2'>
         {/* The floating tools and video live in the same space as the board, above the bottom bar. */}
         <div className='relative flex h-full w-full justify-center [container-type:size] portrait:items-start landscape:items-center'>
           <main className='wb-board-fit relative rounded-2xl bg-slate-100 shadow' style={BOARD_SHAPE}>
@@ -277,7 +285,6 @@ export default function WhiteboardLayout({ header, banner, tools, board, call, p
           hidden={focus}
           onState={setSheet}
           onTab={(id) => {
-            if (sheet !== 'closed' && id === current) return setSheet('closed');
             setActive(id);
             setSheet((was) => (was === 'closed' ? 'open' : was));
           }}
