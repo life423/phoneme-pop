@@ -1,12 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Board, MAX_STROKE_NUMBERS } from './board.js';
 import { BOX_COUNTS, MAX_TILES, cleanTileText } from '../../shared/tiles.js';
+import { MAX_PICTURES } from '../../shared/pieces.js';
+import { newPictureId, pictureUrl, shrinkPicture } from './pictures.js';
 
 const FLUSH_MS = 40; // stroke points go out about 25 times a second
 const THROTTLE_MS = 33; // pointers and dragged tiles about 30 times a second
 const CHUNK = 128; // numbers per message
 const round1 = (n) => Math.round(n * 10) / 10;
 const makeId = (prefix) => `${prefix[0]}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+
+// Sends a shrunk picture to the room; the tutor's room key proves who is asking. True once it's there.
+async function sendPicture(room, id, { blob, w, h }) {
+  try {
+    const res = await fetch(`${pictureUrl(room.code, id)}?w=${w}&h=${h}`, {
+      method: 'POST',
+      body: blob,
+      headers: { 'Content-Type': 'image/jpeg', 'X-Room-Key': room.key },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 // State that updates at most once per animation frame, for pointer-driven things.
 export function useFrameState(initial) {
@@ -41,6 +57,9 @@ export function useWhiteboard(role, send) {
   const flushTimer = useRef(null);
   const channels = useRef({});
   const tiles = useRef(new Map());
+  const pieces = useRef(new Map());
+  const pictures = useRef(new Map()); // id -> { id, w, h }
+  const kept = useRef(new Map()); // the tutor's copies of pictures they added, in case the server restarts
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
   const renderTiles = useCallback(() => setTileFrame(performance.now()), [setTileFrame]);
@@ -173,6 +192,67 @@ export function useWhiteboard(role, send) {
     [role, renderTiles, sendThrottled, cancelThrottled],
   );
 
+  // Picture pieces work like tiles: shown straight away here, confirmed by the server on drop.
+  const pieceActions = useMemo(
+    () => ({
+      add({ pic, crop, x, y, w }) {
+        sendRef.current({ t: 'piece:add', piece: { id: makeId('piece'), pic, crop, x, y, w } });
+      },
+      duplicate(id) {
+        const p = pieces.current.get(id);
+        if (p) sendRef.current({ t: 'piece:add', piece: { id: makeId('piece'), pic: p.pic, crop: p.crop, x: p.x + 32, y: p.y + 32, w: p.w } });
+      },
+      grab(id) {
+        const p = pieces.current.get(id);
+        if (!p) return;
+        p.heldBy = role;
+        p.z = Math.max(0, ...[...pieces.current.values()].map((q) => q.z)) + 1;
+        renderTiles();
+        sendRef.current({ t: 'piece:grab', id });
+      },
+      move(id, x, y, w) {
+        const p = pieces.current.get(id);
+        if (!p) return;
+        const width = w ?? p.w;
+        Object.assign(p, { x, y, w: width, h: (width * p.crop.h) / p.crop.w });
+        renderTiles();
+        sendThrottled('piece', { t: 'piece:move', id, x, y, w });
+      },
+      drop(id, x, y, w) {
+        cancelThrottled('piece');
+        const p = pieces.current.get(id);
+        if (p) p.heldBy = null;
+        renderTiles();
+        sendRef.current({ t: 'piece:drop', id, x, y, w });
+      },
+      remove(id) {
+        sendRef.current({ t: 'piece:delete', id });
+      },
+    }),
+    [role, renderTiles, sendThrottled, cancelThrottled],
+  );
+
+  // Tutor only: shrink a picture, send it to the room, and keep a copy in case the server restarts.
+  const addPicture = useCallback(async (file, room) => {
+    if (!room?.code || !room?.key) return { error: 'Not connected yet. Try again in a moment.' };
+    if (pictures.current.size >= MAX_PICTURES) return { error: `Up to ${MAX_PICTURES} pictures per session.` };
+    let shrunk;
+    try {
+      shrunk = await shrinkPicture(file);
+    } catch {
+      return { error: 'That file isn’t a picture this browser can open.' };
+    }
+    const id = newPictureId();
+    if (!(await sendPicture(room, id, shrunk))) return { error: 'The picture couldn’t be added. Try again.' };
+    kept.current.set(id, shrunk);
+    return { id };
+  }, []);
+
+  const clearPictures = useCallback(() => {
+    kept.current.clear();
+    sendRef.current({ t: 'pieces:clear' });
+  }, []);
+
   // Tutor controls. Spaces separate tiles, so sh stays one tile and c a t makes three.
   const addTiles = useCallback((input) => {
     const tokens = String(input)
@@ -200,10 +280,13 @@ export function useWhiteboard(role, send) {
   // After a server restart, the tutor hands back the board they still have: strokes,
   // tiles (in stacking order) and settings.
   const restore = useCallback(
-    (tools) => {
+    async (tools, room) => {
+      // Pictures go back up first, so the pieces that show them are accepted.
+      if (room) for (const [id, shrunk] of kept.current) await sendPicture(room, id, shrunk);
       for (const s of board.strokes) sendRef.current({ t: 'rs', id: s.id, by: s.by, tool: s.tool, pts: s.pts });
       const ordered = [...tiles.current.values()].sort((a, b) => a.z - b.z);
       for (const tile of ordered) sendRef.current({ t: 'rs-tile', tile });
+      for (const piece of [...pieces.current.values()].sort((a, b) => a.z - b.z)) sendRef.current({ t: 'rs-piece', piece });
       const { strip, boxes } = settingsRef.current;
       sendRef.current({ t: 'restored', tools, strip, boxes });
     },
@@ -221,6 +304,8 @@ export function useWhiteboard(role, send) {
           active.current = null;
           board.replace(Array.isArray(msg.strokes) ? msg.strokes : []);
           tiles.current = new Map((Array.isArray(msg.tiles) ? msg.tiles : []).map((t) => [t.id, t]));
+          pictures.current = new Map((Array.isArray(msg.pictures) ? msg.pictures : []).map((p) => [p.id, p]));
+          pieces.current = new Map((Array.isArray(msg.pieces) ? msg.pieces : []).map((p) => [p.id, p]));
           setSettings({ strip: msg.strip !== false, boxes: BOX_COUNTS.includes(msg.boxes) ? msg.boxes : 0 });
           renderTiles();
           bump();
@@ -272,6 +357,38 @@ export function useWhiteboard(role, send) {
           tiles.current = new Map((msg.tiles || []).map((t) => [t.id, t]));
           renderTiles();
           return true;
+        case 'pic:add':
+          if (msg.pic?.id) pictures.current.set(msg.pic.id, msg.pic);
+          renderTiles();
+          return true;
+        case 'piece:add':
+        case 'piece:drop':
+        case 'piece:denied':
+          if (msg.piece?.id) pieces.current.set(msg.piece.id, msg.piece);
+          renderTiles();
+          return true;
+        case 'piece:grab': {
+          const p = pieces.current.get(msg.id);
+          if (p) Object.assign(p, { heldBy: msg.by, z: msg.z });
+          renderTiles();
+          return true;
+        }
+        case 'piece:move': {
+          const p = pieces.current.get(msg.id);
+          if (p) Object.assign(p, { x: msg.x, y: msg.y, w: msg.w, h: msg.h });
+          renderTiles();
+          return true;
+        }
+        case 'piece:delete':
+          pieces.current.delete(msg.id);
+          renderTiles();
+          return true;
+        case 'pieces':
+          pieces.current = new Map((msg.pieces || []).map((p) => [p.id, p]));
+          pictures.current = new Map((msg.pictures || []).map((p) => [p.id, p]));
+          if (!pictures.current.size) kept.current.clear();
+          renderTiles();
+          return true;
         case 'strip:set':
           setSettings((s) => ({ ...s, strip: Boolean(msg.on) }));
           return true;
@@ -296,6 +413,11 @@ export function useWhiteboard(role, send) {
     restore,
     tiles: [...tiles.current.values()],
     tileActions,
+    pieces: [...pieces.current.values()],
+    pictures: [...pictures.current.values()],
+    pieceActions,
+    addPicture,
+    clearPictures,
     addTiles,
     editTile,
     resetTiles,

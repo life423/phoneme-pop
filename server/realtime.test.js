@@ -435,3 +435,91 @@ describe('video call setup', () => {
     expect(relay.credential).toBe(createHmac('sha1', 'test-secret').update(relay.username).digest('base64'));
   });
 });
+
+describe('pictures and pieces', () => {
+  const PIC = 'a'.repeat(32);
+  const photo = { x: 32, y: 246, w: 646, h: 698, r: 41 };
+  const addPicture = (code, key, id = PIC) =>
+    realtime.pictures.add({ code, key, id, w: 976, h: 974, type: 'image/jpeg', bytes: Buffer.alloc(2000) });
+  const newPiece = (id, extra = {}) => ({ id, pic: PIC, crop: photo, x: 100, y: 200, w: 300, ...extra });
+
+  it('only takes pictures from the room tutor, and tells both screens', async () => {
+    const { tutor, code, key } = await openRoom();
+    const { student } = await joinRoom(code);
+    expect(addPicture(code, 'b'.repeat(32)).status).toBe(403);
+    expect(addPicture(code, key, '../../etc/passwd').status).toBe(400);
+    expect(addPicture(code, key).status).toBe(201);
+    expect((await student.take('pic:add')).pic).toEqual({ id: PIC, w: 976, h: 974 });
+    expect((await tutor.take('pic:add')).pic.id).toBe(PIC);
+    expect(realtime.pictures.get(code, PIC).bytes.length).toBe(2000);
+  });
+
+  it('places a copy of part of a picture, then moves and resizes it in its own shape', async () => {
+    const { tutor, code, key } = await openRoom();
+    const { student } = await joinRoom(code);
+    addPicture(code, key);
+    tutor.send({ t: 'piece:add', piece: newPiece('p1') });
+    const { piece } = await student.take('piece:add');
+    expect(piece).toMatchObject({ id: 'p1', pic: PIC, crop: photo, x: 100, y: 200, w: 300 });
+    expect(piece.h).toBeCloseTo((300 * 698) / 646, 1);
+    tutor.send({ t: 'piece:grab', id: 'p1' });
+    await student.take('piece:grab');
+    tutor.send({ t: 'piece:move', id: 'p1', x: 150, y: 250, w: 200 });
+    expect(await student.take('piece:move')).toMatchObject({ x: 150, y: 250, w: 200 });
+    tutor.send({ t: 'piece:drop', id: 'p1', x: 160, y: 260, w: 200 });
+    expect((await student.take('piece:drop')).piece).toMatchObject({ x: 160, y: 260, w: 200, heldBy: null });
+  });
+
+  it('lets the student copy and resize only while their tools are on, and never delete', async () => {
+    const { tutor, code, key } = await openRoom();
+    const { student } = await joinRoom(code);
+    addPicture(code, key);
+    student.send({ t: 'piece:add', piece: newPiece('s1') });
+    await nothing(tutor, 'piece:add');
+    tutor.send({ t: 'piece:add', piece: newPiece('t1') });
+    await student.take('piece:add');
+    await tutor.take('piece:add');
+    student.send({ t: 'piece:grab', id: 't1' }); // moving is fine, resizing isn't
+    await tutor.take('piece:grab');
+    student.send({ t: 'piece:move', id: 't1', x: 400, y: 300, w: 120 });
+    expect(await tutor.take('piece:move')).toMatchObject({ x: 400, y: 300, w: 300 });
+    student.send({ t: 'piece:drop', id: 't1', x: 400, y: 300 });
+    await tutor.take('piece:drop');
+    tutor.send({ t: 'tools', on: true });
+    await student.take('tools');
+    student.send({ t: 'piece:add', piece: newPiece('s2') });
+    expect((await tutor.take('piece:add')).piece.id).toBe('s2');
+    student.send({ t: 'piece:delete', id: 's2' });
+    await nothing(tutor, 'piece:delete');
+  });
+
+  it('forgets the pictures when the tutor clears them or the room closes', async () => {
+    const { tutor, code, key } = await openRoom();
+    addPicture(code, key);
+    tutor.send({ t: 'pieces:clear' });
+    expect(await tutor.take('pieces')).toMatchObject({ pieces: [], pictures: [] });
+    expect(realtime.pictures.get(code, PIC)).toBeNull();
+    addPicture(code, key);
+    tutor.send({ t: 'end' });
+    await tutor.take('closed');
+    expect(realtime.pictures.get(code, PIC)).toBeNull();
+  });
+
+  it('gives someone joining later the pictures and pieces', async () => {
+    const { tutor, code, key } = await openRoom();
+    addPicture(code, key);
+    tutor.send({ t: 'piece:add', piece: newPiece('p1') });
+    await tutor.take('piece:add');
+    const { board } = await joinRoom(code);
+    expect(board.pictures).toEqual([{ id: PIC, w: 976, h: 974 }]);
+    expect(board.pieces.map((p) => p.id)).toEqual(['p1']);
+  });
+
+  it('refuses pieces of pictures that are not in the room, or crops outside the picture', async () => {
+    const { tutor, code, key } = await openRoom();
+    addPicture(code, key);
+    tutor.send({ t: 'piece:add', piece: newPiece('x1', { pic: 'c'.repeat(32) }) });
+    tutor.send({ t: 'piece:add', piece: newPiece('x2', { crop: { x: 900, y: 900, w: 300, h: 300 } }) });
+    await nothing(tutor, 'piece:add');
+  });
+});
