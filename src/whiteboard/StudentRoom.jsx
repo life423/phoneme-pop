@@ -19,7 +19,7 @@ const PARKED = { kind: 'hand', by: 'student', x: PARKED_HAND.x, y: PARKED_HAND.y
 const ENDINGS = {
   'no-room': ['We can’t find that room', 'Check the 4-digit code with your tutor and try again.'],
   'room-full': ['That room already has a student', 'Check the code with your tutor.'],
-  'slow-down': ['Too many tries', 'Wait a minute, then try your code again.'],
+  'slow-down': ['Too many tries', 'Too many wrong codes from this network. Wait a few minutes, then try again.'],
   closed: ['The session is over', 'Your tutor ended the session. Great work!'],
   replaced: ['Open somewhere else', 'This session is now running in another tab or window.'],
 };
@@ -94,12 +94,14 @@ export default function StudentRoom({ code }) {
         sessionStorage.removeItem(storageKey);
         setPhase('closed');
       } else if (msg.t === 'error') {
-        // After a deploy the room comes back once the tutor reconnects, so keep trying for a minute.
-        if (msg.reason === 'no-room' && joined.current && retries.current < 30) {
+        // After a deploy the room comes back once the tutor reconnects, so keep trying for about a
+        // minute, less often as it goes: each miss counts toward the server's limit on wrong codes.
+        if (msg.reason === 'no-room' && joined.current && retries.current < 8) {
+          const wait = Math.min(12_000, 2000 * 1.5 ** retries.current);
           retries.current += 1;
           setPhase('rejoining');
           clearTimeout(retryTimer.current);
-          retryTimer.current = setTimeout(() => sendRef.current(joinMessage()), 2000);
+          retryTimer.current = setTimeout(() => sendRef.current(joinMessage()), wait);
         } else {
           setPhase(msg.reason);
         }

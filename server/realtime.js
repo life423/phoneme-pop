@@ -204,13 +204,12 @@ export function attachRealtime(server, options = {}) {
     return null;
   };
 
-  const allowJoin = (ip) => {
-    const now = Date.now();
-    const recent = (joinAttempts.get(ip) || []).filter((t) => now - t < joinWindowMs);
-    recent.push(now);
-    joinAttempts.set(ip, recent);
-    return recent.length <= joinAttemptsPerWindow;
-  };
+  // Only wrong codes count toward the join limit: it's there to stop someone guessing codes,
+  // so joining a real room (or coming back to it) never uses it up. Refused tries don't count
+  // either, so waiting always clears it.
+  const missesOf = (ip) => (joinAttempts.get(ip) || []).filter((t) => Date.now() - t < joinWindowMs);
+  const tooManyMisses = (ip) => missesOf(ip).length >= joinAttemptsPerWindow;
+  const recordMiss = (ip) => joinAttempts.set(ip, [...missesOf(ip), Date.now()]);
 
   // ICE servers for a call: STUN, plus TURN with a login that expires. This is the TURN REST
   // API scheme: the relay checks an HMAC of the username against the secret it shares with us.
@@ -333,9 +332,12 @@ export function attachRealtime(server, options = {}) {
     // A student joins with their tutor's code. Their key lets them take back
     // their own seat after a dropped connection.
     join(ws, msg) {
-      if (!allowJoin(ws.ip)) return send(ws, { t: 'error', reason: 'slow-down' });
+      if (tooManyMisses(ws.ip)) return send(ws, { t: 'error', reason: 'slow-down' });
       const room = isCode(msg.code) ? rooms.get(msg.code) : undefined;
-      if (!room) return send(ws, { t: 'error', reason: 'no-room' });
+      if (!room) {
+        recordMiss(ws.ip);
+        return send(ws, { t: 'error', reason: 'no-room' });
+      }
       const returning = isKey(msg.key) && msg.key === room.studentKey;
       if (room.student && room.student !== ws && !returning) return send(ws, { t: 'error', reason: 'room-full' });
       if (ws.room !== room) leaveRoom(ws);

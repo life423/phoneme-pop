@@ -35,9 +35,9 @@ function take(inbox, type, timeout = 1000) {
   });
 }
 
-function connect(origin = ORIGIN) {
+function connect(origin = ORIGIN, target = url) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url, { origin });
+    const ws = new WebSocket(target, { origin });
     const inbox = [];
     ws.on('message', (data) => inbox.push(JSON.parse(data.toString())));
     ws.once('error', reject);
@@ -433,6 +433,41 @@ describe('video call setup', () => {
     expect(user).toBe(`${code}-tutor`);
     expect(Number(expires)).toBeGreaterThan(Date.now() / 1000);
     expect(relay.credential).toBe(createHmac('sha1', 'test-secret').update(relay.username).digest('base64'));
+  });
+});
+
+describe('the join limit', () => {
+  it('only counts wrong codes, and clears for someone who waits', async () => {
+    const limited = http.createServer((req, res) => res.end());
+    const rt = attachRealtime(limited, { allowedOrigins: new Set([ORIGIN]), joinAttemptsPerWindow: 3, joinWindowMs: 400 });
+    await new Promise((resolve) => limited.listen(0, resolve));
+    const address = `ws://localhost:${limited.address().port}/ws`;
+    try {
+      const tutor = await connect(ORIGIN, address);
+      tutor.send({ t: 'create' });
+      const { code } = await tutor.take('room');
+      const student = await connect(ORIGIN, address);
+      for (let i = 0; i < 5; i++) {
+        student.send({ t: 'join', code }); // real joins, from the same network, never use it up
+        await student.take('room');
+      }
+      const guesser = await connect(ORIGIN, address);
+      const wrong = code === '0000' ? '0001' : '0000';
+      for (let i = 0; i < 3; i++) {
+        guesser.send({ t: 'join', code: wrong });
+        expect((await guesser.take('error')).reason).toBe('no-room');
+      }
+      guesser.send({ t: 'join', code: wrong });
+      expect((await guesser.take('error')).reason).toBe('slow-down');
+      guesser.send({ t: 'join', code: wrong }); // refused tries don't add to the wait
+      expect((await guesser.take('error')).reason).toBe('slow-down');
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      guesser.send({ t: 'join', code: wrong });
+      expect((await guesser.take('error')).reason).toBe('no-room');
+    } finally {
+      rt.close();
+      limited.close();
+    }
   });
 });
 
