@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BoxSelect, Gift, Image as ImageIcon, Plus, Wand2 } from 'lucide-react';
+import { ArrowLeft, BoxSelect, Check, Gift, Image as ImageIcon, LayoutGrid, Plus, Pointer, Wand2, X } from 'lucide-react';
 import { regionAt } from './regions.js';
 import { pictureRegions } from './pictures.js';
 import { MAX_PICTURES, startingWidth } from '../../shared/pieces.js';
@@ -12,6 +12,7 @@ const secondary =
   'flex items-center justify-center gap-2 rounded-full border border-violet-300 px-3 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50';
 
 const inside = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+const partOf = (r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, r: r.r || 0 });
 const sameCrop = (a, b) => Boolean(a && b) && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 const boxFrom = (a, b) => ({
   x: Math.round(Math.min(a.x, b.x)),
@@ -84,6 +85,15 @@ export default function PicturesPanel({
   onAddFile,
   library = [],
   onAddFromLibrary,
+  onGiveAll,
+  onBrowse,
+  layout = 'side', // 'side' (the column or sheet) or 'drawer' (the picture library slide-out)
+  browseOnly = false, // just the pictures: no adding, library or paste (the slide-out)
+  peerPic = null, // the picture the student is looking at (shown to the tutor, violet)
+  guidePic = null, // the picture the tutor is pointing at (blue)
+  onGuide, // tutor: point at a picture, or stop (null)
+  onOpenChange, // told which picture is open (or null)
+  notice = null, // a line at the top: { text, tone: 'violet' | 'sky', action?: { label, onClick } }
   onClear,
   onPlace,
   onPlaced,
@@ -105,6 +115,12 @@ export default function PicturesPanel({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(null);
   const [armed, setArmed] = useState(false);
+  const [libraryNote, setLibraryNote] = useState(null);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+  useEffect(() => {
+    onOpenChangeRef.current?.(openId);
+  }, [openId]);
   const fileRef = useRef(null);
   const svgRef = useRef(null);
   const press = useRef(null);
@@ -115,13 +131,25 @@ export default function PicturesPanel({
   const size = pic ? `${pic.w}x${pic.h}` : '';
   const picOffers = pic ? offers.filter((o) => o.pic === pic.id) : [];
   const available = picOffers.filter((o) => !o.taken);
+  // First-party cards (the articulation cards) come with predefined regions, like the mouth
+  // photo: Magic Select offers exactly those, and a student may take them with tools on.
+  const predefined = pic?.regions?.length ? pic.regions : null;
+  const predefinedKey = predefined ? predefined.map((r) => `${r.id}:${r.x},${r.y},${r.w},${r.h}`).join(';') : '';
+  const takeable = student && predefined ? predefined : [];
+  const inSession = (card) => pictures.some((p) => p.library === card.id);
+  const uploads = pictures.filter((p) => !p.library).length; // library cards have their own limit
 
   // Each picture's parts are found once, when the tutor first opens it.
   useEffect(() => {
     setRegions([]);
     setSelection(null);
     setHover(null);
-    if (!src || student) return undefined;
+    if (!src) return undefined;
+    if (predefined) {
+      setRegions(predefined); // first-party regions: no detection needed
+      return undefined;
+    }
+    if (student) return undefined;
     const [w, h] = size.split('x').map(Number);
     let live = true;
     pictureRegions(src, { w, h }).then((found) => {
@@ -130,7 +158,7 @@ export default function PicturesPanel({
     return () => {
       live = false;
     };
-  }, [src, size, student]);
+  }, [src, size, student, predefinedKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addFile = async (file) => {
     if (!file || !canAdd) return;
@@ -140,6 +168,16 @@ export default function PicturesPanel({
     setBusy(false);
     if (result?.error) setNote(result.error);
     else if (result?.id) setOpenId(result.id);
+  };
+
+  // Every library card joins the session, so the student can open any of them.
+  const giveAll = async () => {
+    if (!onGiveAll) return;
+    setBusy(true);
+    setLibraryNote(null);
+    const result = await onGiveAll(library);
+    setBusy(false);
+    setLibraryNote(result?.error || (result?.added ? `${result.added} cards added. Your student can open them from Pictures.` : 'Every library card is already in this session.'));
   };
 
   // A card from the picture library joins the session and opens, ready for Magic Select.
@@ -155,7 +193,7 @@ export default function PicturesPanel({
 
   // Pasting an image anywhere on the page adds it (tutor only).
   useEffect(() => {
-    if (!canAdd) return undefined;
+    if (!canAdd || browseOnly) return undefined;
     const onPaste = (event) => {
       const file = [...(event.clipboardData?.files || [])].find((f) => f.type.startsWith('image/'));
       if (!file) return;
@@ -168,7 +206,7 @@ export default function PicturesPanel({
   });
 
   // Puts a part on the board: where it was dropped, or in the middle of the board.
-  const place = (crop, clientX, clientY, offerId) => {
+  const place = (crop, clientX, clientY, offerId, regionId) => {
     const w = startingWidth(crop);
     const h = (w * crop.h) / crop.w;
     let at = { x: 800, y: 580 };
@@ -176,7 +214,7 @@ export default function PicturesPanel({
       at = stageApi?.current?.pointAt(clientX, clientY);
       if (!at) return false;
     }
-    onPlace({ offer: offerId, pic: pic.id, crop, x: at.x - w / 2, y: at.y - h / 2, w });
+    onPlace({ offer: offerId, region: regionId, pic: pic.id, crop, x: at.x - w / 2, y: at.y - h / 2, w });
     onPlaced?.();
     if (student) setSelection(null);
     return true;
@@ -190,8 +228,8 @@ export default function PicturesPanel({
     };
   };
 
-  const pickUp = (event, part, offerId) => {
-    press.current = { kind: 'part', part, offer: offerId, sx: event.clientX, sy: event.clientY, dragging: false };
+  const pickUp = (event, part, offerId, regionId) => {
+    press.current = { kind: 'part', part, offer: offerId, region: regionId, sx: event.clientX, sy: event.clientY, dragging: false };
   };
 
   // Press on a part to pick it up. The tutor can also press anywhere else to draw a box.
@@ -206,13 +244,15 @@ export default function PicturesPanel({
     const p = toPic(event);
     if (student) {
       const offer = offerAt(available, p);
-      if (!offer) return;
+      const region = offer ? null : takeable.find((r) => inside(p, r));
+      if (!offer && !region) return;
       if (!canTake) {
         setNote('Your tutor needs to turn on your tools first.');
         return;
       }
-      setSelection(offer.crop);
-      pickUp(event, offer.crop, offer.id);
+      const crop = offer ? offer.crop : partOf(region);
+      setSelection(crop);
+      pickUp(event, crop, offer?.id, region?.id);
       return;
     }
     let part = selection && inside(p, selection) ? selection : null;
@@ -264,7 +304,7 @@ export default function PicturesPanel({
       return;
     }
     setGhost(null);
-    if (current.dragging && event.type === 'pointerup' && !place(current.part, event.clientX, event.clientY, current.offer)) {
+    if (current.dragging && event.type === 'pointerup' && !place(current.part, event.clientX, event.clientY, current.offer, current.region)) {
       setNote('Drop it on the board to place it.');
     }
   };
@@ -272,17 +312,23 @@ export default function PicturesPanel({
   if (pic) {
     const offered = !student && selection ? picOffers.find((o) => sameCrop(o.crop, selection)) : null;
     const chosen = student && selection ? available.find((o) => sameCrop(o.crop, selection)) : null;
+    const chosenRegion = student && selection ? takeable.find((r) => sameCrop(partOf(r), selection)) : null;
     let hint = 'Tap a part to select it, or drag across the picture to draw a box.';
     if (mode === 'box') hint = 'Drag across the picture to draw a box around what you want.';
+    if (predefined && mode === 'magic') hint = `Tap the ${predefined[0].label.toLowerCase()} to select it.`;
     if (selection) hint = 'Drag the selected part onto the board, or use the buttons below.';
     if (offered) hint = offered.taken ? 'Your student has taken this part.' : 'Your student can take this part once, while their tools are on.';
-    if (student) {
+    if (student && takeable.length) {
+      const what = takeable[0].label.toLowerCase();
+      hint = canTake ? `Drag the ${what} onto the board.` : `Your tutor will turn on your tools so you can take the ${what}.`;
+    } else if (student) {
       if (available.length && canTake) hint = 'Drag the bright part onto the board. You can take it once.';
       else if (available.length) hint = 'Your tutor will turn on your tools so you can take the bright part.';
       else if (picOffers.length) hint = 'You’ve used the part your tutor gave you.';
       else hint = 'Your tutor hasn’t given you a part of this picture yet.';
     }
-    const dim = `M0 0H${pic.w}V${pic.h}H0Z${available.map((o) => `M${o.crop.x} ${o.crop.y}h${o.crop.w}v${o.crop.h}h${-o.crop.w}Z`).join('')}`;
+    const bright = [...available.map((o) => o.crop), ...takeable];
+    const dim = `M0 0H${pic.w}V${pic.h}H0Z${bright.map((c) => `M${c.x} ${c.y}h${c.w}v${c.h}h${-c.w}Z`).join('')}`;
     return (
       <section aria-label='Pictures' className={card}>
         <button
@@ -293,8 +339,24 @@ export default function PicturesPanel({
           <ArrowLeft className='h-4 w-4' aria-hidden='true' />
           All pictures
         </button>
-        <div className='relative overflow-hidden rounded-xl border border-slate-200 bg-white'>
-          <img src={src} alt='' draggable={false} className='block w-full select-none' />
+        {student && guidePic && guidePic !== pic.id && (
+          <div role='status' className='flex flex-wrap items-center gap-2 rounded-xl bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800'>
+            <span className='h-2 w-2 shrink-0 rounded-full bg-sky-500' aria-hidden='true' />
+            <span className='min-w-0 flex-1'>Your tutor picked a different picture.</span>
+            <button type='button' onClick={() => setOpenId(guidePic)} className='rounded-full bg-white px-2.5 py-0.5 text-xs font-bold shadow-sm ring-1 ring-sky-200 hover:bg-sky-50'>
+              Show me
+            </button>
+          </div>
+        )}
+        {student && guidePic === pic.id && <p className='text-sm font-semibold text-sky-700'>Your tutor picked this one.</p>}
+        {!student && peerPic === pic.id && <p className='text-sm font-semibold text-violet-700'>Your student is looking at this too.</p>}
+        <div className={`relative overflow-hidden rounded-xl border border-slate-200 bg-white ${layout === 'drawer' ? 'mx-auto w-fit' : ''}`}>
+          <img
+            src={src}
+            alt=''
+            draggable={false}
+            className={layout === 'drawer' ? 'block h-auto max-h-[calc(100dvh-15rem)] w-auto max-w-full select-none' : 'block w-full select-none'}
+          />
           <svg
             ref={svgRef}
             viewBox={`0 0 ${pic.w} ${pic.h}`}
@@ -308,7 +370,7 @@ export default function PicturesPanel({
             onPointerCancel={onUp}
             onPointerLeave={() => setHover(null)}
           >
-            {student && available.length > 0 && <path d={dim} fillRule='evenodd' className='fill-slate-900/40' />}
+            {student && bright.length > 0 && <path d={dim} fillRule='evenodd' className='fill-slate-900/40' />}
             {(student ? available : picOffers).map((o) => (
               <Outline key={o.id} r={o.crop} className='fill-none stroke-amber-400' />
             ))}
@@ -346,8 +408,8 @@ export default function PicturesPanel({
           </div>
         )}
         <p className='text-xs text-slate-500'>{hint}</p>
-        {selection && (!student || (chosen && canTake)) && (
-          <button type='button' onClick={() => place(selection, undefined, undefined, chosen?.id)} className={primary}>
+        {selection && (!student || ((chosen || chosenRegion) && canTake)) && (
+          <button type='button' onClick={() => place(selection, undefined, undefined, chosen?.id, chosenRegion?.id)} className={primary}>
             Add to board
           </button>
         )}
@@ -386,19 +448,25 @@ export default function PicturesPanel({
 
   return (
     <section aria-label='Pictures' className={card}>
-      <div className='flex items-center justify-between'>
+      <div className={`flex items-center justify-between ${browseOnly ? 'hidden' : ''}`}>
         <h2 className='text-sm font-bold text-slate-700'>Pictures</h2>
         {!student && (
           <span className='text-xs font-semibold text-slate-500'>
-            {pictures.length}/{MAX_PICTURES}
+            {uploads}/{MAX_PICTURES} uploads
           </span>
         )}
       </div>
-      {canAdd && (
+      {!student && layout === 'side' && onBrowse && shown.length > 0 && (
+        <button type='button' onClick={onBrowse} className={secondary}>
+          <LayoutGrid className='h-4 w-4' aria-hidden='true' />
+          Open picture library
+        </button>
+      )}
+      {canAdd && !browseOnly && (
         <>
           <button
             type='button'
-            disabled={busy || pictures.length >= MAX_PICTURES}
+            disabled={busy || uploads >= MAX_PICTURES}
             onClick={() => fileRef.current?.click()}
             className={primary}
           >
@@ -424,15 +492,33 @@ export default function PicturesPanel({
           {note}
         </p>
       )}
-      {canAdd && library.length > 0 && (
+      {canAdd && !browseOnly && library.length > 0 && (
         <div className='flex flex-col gap-1.5'>
-          <h3 className='text-xs font-bold uppercase tracking-wide text-slate-500'>Library</h3>
+          <div className='flex items-center justify-between gap-2'>
+            <h3 className='text-xs font-bold uppercase tracking-wide text-slate-500'>Library</h3>
+            {library.length > 1 && onGiveAll && (
+              <button
+                type='button'
+                disabled={busy || library.every(inSession)}
+                onClick={giveAll}
+                className='inline-flex items-center gap-1.5 rounded-full bg-violet-600 px-3 py-1 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-50'
+              >
+                <Gift className='h-3.5 w-3.5' aria-hidden='true' />
+                {busy ? 'Adding…' : 'Give all to student'}
+              </button>
+            )}
+          </div>
+          {libraryNote && (
+            <p role='status' className='text-xs font-semibold text-slate-600'>
+              {libraryNote}
+            </p>
+          )}
           <ul className='flex flex-col gap-1.5'>
             {library.map((card) => (
               <li key={card.id}>
                 <button
                   type='button'
-                  disabled={busy || pictures.length >= MAX_PICTURES}
+                  disabled={busy || inSession(card)}
                   onClick={() => addCard(card)}
                   className='flex w-full items-center gap-3 rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-left hover:border-violet-400 disabled:opacity-50'
                 >
@@ -443,38 +529,106 @@ export default function PicturesPanel({
                       {[card.collection, (card.sounds || []).map((s) => `/${s}/`).join(' ')].filter(Boolean).join(' · ')}
                     </span>
                   </span>
-                  <Plus className='h-4 w-4 shrink-0 text-violet-600' aria-hidden='true' />
+                  {inSession(card) ? (
+                    <span className='inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-emerald-700'>
+                      <Check className='h-4 w-4' aria-hidden='true' />
+                      In session
+                    </span>
+                  ) : (
+                    <Plus className='h-4 w-4 shrink-0 text-violet-600' aria-hidden='true' />
+                  )}
                 </button>
               </li>
             ))}
           </ul>
-          {shown.length > 0 && <h3 className='mt-1 text-xs font-bold uppercase tracking-wide text-slate-500'>In this session</h3>}
         </div>
+      )}
+      {notice && (
+        <div
+          role='status'
+          className={`flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl px-3 py-2 text-sm font-semibold ${
+            notice.tone === 'sky' ? 'bg-sky-50 text-sky-800' : 'bg-violet-50 text-violet-800'
+          }`}
+        >
+          <span className={`h-2 w-2 shrink-0 rounded-full ${notice.tone === 'sky' ? 'bg-sky-500' : 'bg-violet-500'}`} aria-hidden='true' />
+          <span className='min-w-0 flex-1'>{notice.text}</span>
+          {notice.action && (
+            <button type='button' onClick={notice.action.onClick} className='rounded-full bg-white px-2.5 py-0.5 text-xs font-bold shadow-sm ring-1 ring-current/20 hover:bg-slate-50'>
+              {notice.action.label}
+            </button>
+          )}
+        </div>
+      )}
+      {!student && layout === 'side' && shown.length > 0 && (
+        <h3 className='mt-1 text-xs font-bold uppercase tracking-wide text-slate-500'>In this session · {shown.length}</h3>
+      )}
+      {student && layout === 'side' && onBrowse && shown.length > 0 && (
+        <button type='button' onClick={onBrowse} className={secondary}>
+          <LayoutGrid className='h-4 w-4' aria-hidden='true' />
+          Open picture library
+        </button>
       )}
       {shown.length === 0 ? (
         <p className='text-sm text-slate-500'>
           {student ? 'Your tutor hasn’t added any pictures yet.' : 'Add a worksheet or picture, then lift parts out of it with Magic Select.'}
         </p>
       ) : (
-        <ul className='-mx-1 flex max-h-[45vh] flex-col gap-2 overflow-y-auto px-1'>
+        <ul className={layout === 'drawer' ? 'grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-3' : '-mx-1 flex max-h-[45vh] flex-col gap-2 overflow-y-auto px-1'}>
           {shown.map((p, i) => (
-            <li key={p.id}>
+            <li key={p.id} className='relative'>
+              {(p.id === guidePic || p.id === peerPic) && (
+                <span
+                  className={`pointer-events-none absolute left-2 top-2 z-10 rounded-full px-2 py-0.5 text-xs font-bold text-white shadow ${
+                    p.id === guidePic ? 'bg-sky-500' : 'bg-violet-600'
+                  }`}
+                >
+                  {p.id === guidePic ? (student ? 'Your tutor picked this' : 'Showing to student') : 'Student is here'}
+                </span>
+              )}
+              {onGuide && (
+                <button
+                  type='button'
+                  onClick={() => onGuide(p.id === guidePic ? null : p.id)}
+                  aria-pressed={p.id === guidePic}
+                  aria-label={p.id === guidePic ? 'Stop showing this to your student' : 'Show this picture to your student'}
+                  title={p.id === guidePic ? 'Stop showing this to your student' : 'Show this picture to your student'}
+                  className={`absolute bottom-1.5 right-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full shadow ring-1 ${
+                    p.id === guidePic ? 'bg-sky-500 text-white ring-sky-600' : 'bg-white text-sky-700 ring-slate-200 hover:bg-sky-50'
+                  }`}
+                >
+                  <Pointer className='h-4 w-4' aria-hidden='true' />
+                </button>
+              )}
               <button
                 type='button'
-                aria-label={`Open picture ${i + 1}`}
+                aria-label={`Open ${p.title || `picture ${i + 1}`}`}
                 onClick={() => {
                   setNote(null);
                   setOpenId(p.id);
                 }}
-                className='block w-full overflow-hidden rounded-xl border-2 border-slate-200 bg-white hover:border-violet-400'
+                className={`block w-full overflow-hidden rounded-xl border-2 bg-white hover:border-violet-400 ${
+                  p.id === guidePic
+                    ? 'border-sky-400 ring-4 ring-sky-300 motion-safe:animate-pulse'
+                    : p.id === peerPic
+                      ? 'border-violet-400 ring-4 ring-violet-300'
+                      : 'border-slate-200'
+                }`}
               >
-                <img src={srcFor(p.id)} alt='' draggable={false} className='mx-auto block max-h-40 w-auto' />
+                <img
+                  src={srcFor(p.id)}
+                  alt=''
+                  draggable={false}
+                  className={layout === 'drawer' ? 'block aspect-square h-auto w-full object-contain' : 'mx-auto block max-h-40 w-auto'}
+                />
+                {layout === 'drawer' && p.title && (
+                  <span className='block truncate border-t border-slate-100 px-2 py-1.5 text-left text-sm font-bold text-slate-800'>{p.title}</span>
+                )}
               </button>
             </li>
           ))}
         </ul>
       )}
-      {canAdd && pictures.length > 0 && (
+      {canAdd && !browseOnly && pictures.length > 0 && (
         <button
           type='button'
           onClick={() => {
@@ -489,5 +643,50 @@ export default function PicturesPanel({
         </button>
       )}
     </section>
+  );
+}
+
+// The picture library slide-out: the session's pictures as a grid, and a big view of the one
+// opened, sliding in over the board from the right (the whole screen on phones).
+export function PictureDrawer({ open, onClose, title = 'Picture library', children }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+  return (
+    <div className={`fixed inset-0 z-50 ${open ? '' : 'pointer-events-none'}`} aria-hidden={!open}>
+      <div
+        className={`absolute inset-0 bg-slate-900/20 transition-opacity duration-300 motion-reduce:transition-none ${open ? 'opacity-100' : 'opacity-0'}`}
+        onClick={onClose}
+      />
+      <aside
+        role='dialog'
+        aria-modal='true'
+        aria-label={title}
+        className={`absolute inset-y-0 right-0 flex w-full flex-col bg-slate-50 shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none sm:w-[min(52rem,92vw)] ${
+          open ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <header className='flex items-center gap-3 border-b border-slate-200 bg-white px-5 py-4'>
+          <span className='flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 text-white'>
+            <LayoutGrid className='h-5 w-5' aria-hidden='true' />
+          </span>
+          <h2 className='text-lg font-extrabold text-slate-900'>{title}</h2>
+          <button
+            type='button'
+            onClick={onClose}
+            className='ml-auto inline-flex items-center gap-1.5 rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50'
+          >
+            <X className='h-4 w-4' aria-hidden='true' />
+            Close
+          </button>
+        </header>
+        <div className='min-h-0 flex-1 overflow-y-auto p-4'>{open && children}</div>
+      </aside>
+    </div>
   );
 }

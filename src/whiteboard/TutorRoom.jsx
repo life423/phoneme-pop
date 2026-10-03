@@ -10,7 +10,7 @@ import WhiteboardLayout from './WhiteboardLayout.jsx';
 import AlphabetBar from './AlphabetBar.jsx';
 import { ClearButton, Switch, ToolButton, ToolRail } from './Toolbar.jsx';
 import TileBar from './TileBar.jsx';
-import PicturesPanel from './PicturesPanel.jsx';
+import PicturesPanel, { PictureDrawer } from './PicturesPanel.jsx';
 import { pictureUrl } from './pictures.js';
 import { useVideoCall } from './useVideoCall.js';
 import { CopyButton, FocusButton, MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
@@ -47,6 +47,9 @@ export default function TutorRoom() {
     if (selectedTileId) layout.current?.show('tiles');
   }, [selectedTileId]);
   const stageApi = useRef(null);
+  const [browsing, setBrowsing] = useState(false); // the picture library slide-out
+  const [studentBrowse, setStudentBrowse] = useState({ open: false, pic: null }); // where the student is browsing
+  const [guidePic, setGuidePic] = useState(null); // the picture this tutor is pointing at
   // The picture library, which this tutor's live room can draw from.
   const [library, setLibrary] = useState([]);
   useEffect(() => {
@@ -83,6 +86,7 @@ export default function TutorRoom() {
       if (call.handle(msg)) return;
       if (msg.t === 'board') setStudentTools(Boolean(msg.tools));
       if (wb.handle(msg)) return;
+      if (msg.t === 'browse') return setStudentBrowse({ open: msg.open === true, pic: msg.pic || null });
       if (msg.t === 'view') return setStudentView({ x: msg.x, y: msg.y, w: msg.w, h: msg.h });
       if (msg.t === 'room') {
         const saved = { code: msg.code, key: msg.key };
@@ -198,7 +202,35 @@ export default function TutorRoom() {
   const activity = studentMarker && ACTIVITY[studentMarker.kind];
   const markers = [studentMarker && { key: 'student', ...studentMarker }, myMarker && { key: 'me', ...myMarker }].filter(Boolean);
 
+  // The Pictures panel's settings, shared by the side column (or sheet) and the slide-out.
+  const pictureProps = {
+    pictures: wb.pictures,
+    srcFor: (id) => pictureUrl(room.code, id),
+    canAdd: true,
+    onAddFile: (file) => wb.addPicture(file, room),
+    onClear: wb.clearPictures,
+    library,
+    onAddFromLibrary: (card) => wb.addLibraryCard(card, room),
+    onGiveAll: (cards) => wb.addLibraryCards(cards, room),
+    offers: wb.offers,
+    onOffer: wb.offerActions.give,
+    onWithdraw: wb.offerActions.withdraw,
+    onReset: wb.offerActions.reset,
+    onPlace: wb.pieceActions.add,
+    stageApi,
+    guidePic,
+    onGuide: (pic) => {
+      setGuidePic(pic);
+      send({ t: 'guide', pic });
+    },
+    peerPic: studentHere && studentBrowse.open ? studentBrowse.pic : null,
+  };
+  const studentPicTitle = wb.pictures.find((p) => p.id === studentBrowse.pic)?.title;
+  const studentBrowsing = studentHere && studentBrowse.open;
+  const browseText = studentPicTitle ? `Your student is looking at ${studentPicTitle}.` : 'Your student opened the picture library.';
+
   return (
+    <>
     <WhiteboardLayout
       header={
         <TopBar
@@ -357,26 +389,20 @@ export default function TutorRoom() {
           label: 'Pictures',
           icon: ImageIcon,
           content: (
-            <PicturesPanel
-              pictures={wb.pictures}
-              srcFor={(id) => pictureUrl(room.code, id)}
-              canAdd
-              onAddFile={(file) => wb.addPicture(file, room)}
-              onClear={wb.clearPictures}
-              library={library}
-              onAddFromLibrary={(card) => wb.addLibraryCard(card, room)}
-              offers={wb.offers}
-              onOffer={wb.offerActions.give}
-              onWithdraw={wb.offerActions.withdraw}
-              onReset={wb.offerActions.reset}
-              onPlace={wb.pieceActions.add}
-              stageApi={stageApi}
-              onShow={() => layout.current?.show('pictures')}
-              onPlaced={() => layout.current?.closeSheet()}
-            />
+            <PicturesPanel {...pictureProps} notice={studentBrowsing ? { text: browseText, tone: 'violet', action: { label: 'View with them', onClick: () => setBrowsing(true) } } : null} onBrowse={() => setBrowsing(true)} onShow={() => layout.current?.show('pictures')} onPlaced={() => layout.current?.closeSheet()} />
           ),
         },
       ]}
     />
+    <PictureDrawer open={browsing} onClose={() => setBrowsing(false)}>
+      <PicturesPanel
+        {...pictureProps}
+        layout='drawer'
+        browseOnly
+        notice={studentBrowsing ? { text: browseText, tone: 'violet' } : { text: 'Point at a picture to show it to your student.', tone: 'sky' }}
+        onPlaced={() => setBrowsing(false)}
+      />
+    </PictureDrawer>
+    </>
   );
 }

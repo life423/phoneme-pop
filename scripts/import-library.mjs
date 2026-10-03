@@ -4,8 +4,10 @@
 //   npm run import-library -- ~/Desktop/mouth-pictures
 //
 // The folder holds the numbered images and cards.csv, with the columns
-// file, order, title, sounds, note, collection. Safe to run again: a card that's already in
-// the library (same collection and file) is updated, not added twice.
+// file, order, title, sounds, note, collection, and optionally regions: predefined Magic
+// Select regions as id:x,y,w,h,r in picture pixels, several separated by ; (for example
+// mouth:48,300,744,852,36). Safe to run again: a card that's already in the library (same
+// collection and file) is updated, not added twice.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { MongoClient, ObjectId } from 'mongodb';
@@ -46,6 +48,19 @@ function readCsv(text) {
   const [header, ...body] = rows;
   const names = header.map((h) => h.trim().toLowerCase());
   return body.map((cells) => Object.fromEntries(names.map((name, i) => [name, (cells[i] ?? '').trim()])));
+}
+
+// Predefined regions from the regions column: [{ id, label, x, y, w, h, r }].
+function readRegions(text) {
+  return (text || '')
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const [id, numbers] = part.split(':');
+      const [x, y, w, h, r = 0] = numbers.split(',').map(Number);
+      return { id, label: id.charAt(0).toUpperCase() + id.slice(1), x, y, w, h, r };
+    });
 }
 
 // Width and height from the file itself.
@@ -107,6 +122,7 @@ try {
           sounds: (card.sounds || '').split(',').map((s) => s.trim()).filter(Boolean),
           note: card.note || '',
           image: { path: blobPath, type, width: size.width, height: size.height, bytes: bytes.length },
+          regions: readRegions(card.regions),
           updatedAt: new Date(),
         },
         $setOnInsert: { createdAt: new Date() },

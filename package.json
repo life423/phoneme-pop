@@ -11,7 +11,9 @@
     "start": "node server/index.js",
     "smoke": "node server/smoke.js",
     "shots": "node scripts/responsive-shots.mjs shots",
-    "import-library": "node --env-file=.env scripts/import-library.mjs"
+    "import-library": "node --env-file=.env scripts/import-library.mjs",
+    "articulation": "node scripts/build-articulation.mjs",
+    "render-articulation": "node scripts/render-articulation-cards.mjs"
   },
   "dependencies": {
     "@azure/identity": "^4.13.3",

@@ -111,7 +111,7 @@ export function createApp({ pictures, library } = {}) {
         const type = imageType(card.bytes);
         if (!type) return res.sendStatus(415);
         const key = req.get('x-room-key');
-        const { status } = pictures.add({ code: req.params.code, key, id: req.params.id, w: card.w, h: card.h, type, bytes: card.bytes });
+        const { status } = pictures.add({ code: req.params.code, key, id: req.params.id, w: card.w, h: card.h, type, bytes: card.bytes, regions: card.regions, library: req.params.card, title: card.title });
         res.status(status).json({ ok: status < 300 });
       } catch (error) {
         console.warn(`Library copy failed: ${error.message}`);

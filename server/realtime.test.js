@@ -613,3 +613,59 @@ describe('each screen’s view of the board', () => {
     await nothing(student, 'focus');
   });
 });
+
+describe('library cards with predefined regions', () => {
+  it('lets the student take the card mouth region themselves, with tools on, and nothing else', async () => {
+    const { tutor, code, key } = await openRoom();
+    const { student } = await joinRoom(code);
+    const id = 'b'.repeat(32);
+    const mouth = { id: 'mouth', label: 'Mouth', x: 48, y: 300, w: 744, h: 852, r: 36 };
+    realtime.pictures.add({ code, key, id, w: 1200, h: 1200, type: 'image/jpeg', bytes: Buffer.alloc(2000), regions: [mouth, { id: 'Bad!', x: 0, y: 0, w: 5, h: 5 }] });
+    expect((await student.take('pic:add')).pic.regions).toEqual([mouth]);
+    const piece = (pid, extra) => ({ id: pid, pic: id, crop: { x: 0, y: 0, w: 1200, h: 1200 }, x: 100, y: 100, w: 300, ...extra });
+    student.send({ t: 'piece:add', piece: piece('m1', { region: 'mouth' }) }); // tools still off
+    await nothing(tutor, 'piece:add');
+    tutor.send({ t: 'tools', on: true });
+    await student.take('tools');
+    student.send({ t: 'piece:add', piece: piece('m2', { region: 'mouth' }) });
+    expect((await tutor.take('piece:add')).piece.crop).toMatchObject({ x: 48, y: 300, w: 744, h: 852 });
+    student.send({ t: 'piece:add', piece: piece('m3', { region: 'title' }) }); // not a region of this card
+    await nothing(tutor, 'piece:add');
+    student.send({ t: 'piece:add', piece: piece('m4') }); // a crop of their own
+    await nothing(tutor, 'piece:add');
+  });
+});
+
+describe('library cards in a session', () => {
+  it('keeps them apart from uploads: their own limit, with their card id and title', async () => {
+    const { code, key } = await openRoom();
+    const { student } = await joinRoom(code);
+    for (let i = 0; i < 9; i++) {
+      const id = i.toString(16).padStart(32, 'c');
+      expect(realtime.pictures.add({ code, key, id, w: 100, h: 100, type: 'image/jpeg', bytes: Buffer.alloc(10), library: `card${i}`, title: `Card ${i}` }).status).toBe(201);
+    }
+    expect((await student.take('pic:add')).pic).toMatchObject({ library: 'card0', title: 'Card 0' });
+    const upload = { code, key, id: 'd'.repeat(32), w: 100, h: 100, type: 'image/jpeg', bytes: Buffer.alloc(10) };
+    expect(realtime.pictures.add(upload).status).toBe(201); // nine library cards, and an upload still fits
+  });
+});
+
+describe('the shared picture library', () => {
+  it('tells the tutor where the student is browsing, and shows the student the tutor pick', async () => {
+    const { tutor, code, key } = await openRoom();
+    const { student } = await joinRoom(code);
+    const pic = 'e'.repeat(32);
+    realtime.pictures.add({ code, key, id: pic, w: 100, h: 100, type: 'image/jpeg', bytes: Buffer.alloc(10) });
+    await student.take('pic:add');
+    student.send({ t: 'browse', open: true, pic });
+    expect(await tutor.take('browse')).toMatchObject({ open: true, pic });
+    student.send({ t: 'browse', open: true, pic: 'f'.repeat(32) }); // not a picture in this session
+    expect((await tutor.take('browse')).pic).toBeNull();
+    tutor.send({ t: 'guide', pic });
+    expect(await student.take('guide')).toMatchObject({ pic });
+    student.send({ t: 'guide', pic }); // only the tutor points
+    await nothing(tutor, 'guide');
+    tutor.send({ t: 'browse', open: true, pic }); // only the student reports
+    await nothing(student, 'browse');
+  });
+});

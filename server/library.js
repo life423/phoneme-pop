@@ -20,7 +20,7 @@ export function connectLibrary({ uri = process.env.MONGODB_URI, account = proces
     // Every card, series by series, in teaching order.
     async list() {
       const docs = await cards
-        .find({}, { projection: { title: 1, sounds: 1, note: 1, collection: 1, order: 1, image: 1 } })
+        .find({}, { projection: { title: 1, sounds: 1, note: 1, collection: 1, order: 1, image: 1, regions: 1 } })
         .limit(1000)
         .toArray();
       return docs
@@ -34,6 +34,7 @@ export function connectLibrary({ uri = process.env.MONGODB_URI, account = proces
           order: d.order ?? 0,
           w: d.image.width,
           h: d.image.height,
+          regions: Array.isArray(d.regions) ? d.regions : [],
         }))
         .sort((a, b) => a.collection.localeCompare(b.collection) || a.order - b.order || a.title.localeCompare(b.title));
     },
@@ -43,7 +44,7 @@ export function connectLibrary({ uri = process.env.MONGODB_URI, account = proces
       const card = await cards.findOne({ _id: new ObjectId(id) });
       if (!card?.image?.path) return null;
       const bytes = await container.getBlobClient(card.image.path).downloadToBuffer();
-      return { bytes, w: card.image.width, h: card.image.height };
+      return { bytes, w: card.image.width, h: card.image.height, title: card.title, regions: Array.isArray(card.regions) ? card.regions : [] };
     },
     close: () => client.close(),
   };

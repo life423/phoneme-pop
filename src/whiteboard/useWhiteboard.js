@@ -209,8 +209,8 @@ export function useWhiteboard(role, send) {
   // Picture pieces work like tiles: shown straight away here, confirmed by the server on drop.
   const pieceActions = useMemo(
     () => ({
-      add({ offer, pic, crop, x, y, w }) {
-        sendRef.current({ t: 'piece:add', piece: { id: makeId('piece'), offer, pic, crop, x, y, w } });
+      add({ offer, region, pic, crop, x, y, w }) {
+        sendRef.current({ t: 'piece:add', piece: { id: makeId('piece'), offer, region, pic, crop, x, y, w } });
       },
       duplicate(id) {
         const p = pieces.current.get(id);
@@ -249,7 +249,8 @@ export function useWhiteboard(role, send) {
   // Tutor only: shrink a picture, send it to the room, and keep a copy in case the server restarts.
   const addPicture = useCallback(async (file, room) => {
     if (!room?.code || !room?.key) return { error: 'Not connected yet. Try again in a moment.' };
-    if (pictures.current.size >= MAX_PICTURES) return { error: `Up to ${MAX_PICTURES} pictures per session.` };
+    const uploads = [...pictures.current.values()].filter((p) => !p.library).length;
+    if (uploads >= MAX_PICTURES) return { error: `Up to ${MAX_PICTURES} uploaded pictures per session.` };
     let shrunk;
     try {
       shrunk = await shrinkPicture(file);
@@ -281,12 +282,27 @@ export function useWhiteboard(role, send) {
   // Tutor only: a card from the picture library, into this session.
   const addLibraryCard = useCallback(async (card, room) => {
     if (!room?.code || !room?.key) return { error: 'Not connected yet. Try again in a moment.' };
-    if (pictures.current.size >= MAX_PICTURES) return { error: `Up to ${MAX_PICTURES} pictures per session.` };
+    const here = [...pictures.current.values()].find((p) => p.library === card.id);
+    if (here) return { id: here.id, existing: true }; // already in this session
     const id = newPictureId();
     if (!(await sendFromLibrary(room, id, card.id))) return { error: 'That card couldn’t be added. Try again.' };
     kept.current.set(id, { library: card.id });
     return { id };
   }, []);
+
+  // Tutor only: every card of a library list into this session, skipping those already here.
+  const addLibraryCards = useCallback(
+    async (cards, room) => {
+      let added = 0;
+      for (const card of cards) {
+        const result = await addLibraryCard(card, room);
+        if (result.error) return { added, error: result.error };
+        if (!result.existing) added += 1;
+      }
+      return { added };
+    },
+    [addLibraryCard],
+  );
 
   const clearPictures = useCallback(() => {
     kept.current.clear();
@@ -475,6 +491,7 @@ export function useWhiteboard(role, send) {
     offerActions,
     addPicture,
     addLibraryCard,
+    addLibraryCards,
     clearPictures,
     addTiles,
     editTile,
