@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARTICULATION_CARDS, cardSoundLine } from '../data/articulationCards.js';
+import { ARTICULATION_CARDS, FRONT_PHOTOS, cardSoundLine } from '../data/articulationCards.js';
 import { BANNER, CARD, COLUMN, DIAGRAM, INSTRUCTION, MOUTH_REGION, PHOTO, SOUND, fitText, titleSize } from './cardLayout.js';
 
 describe('the articulation card layout', () => {
@@ -25,5 +25,25 @@ describe('the articulation card layout', () => {
         expect([card.id, text, lines.length * size * 1.2 <= area.height]).toEqual([card.id, text, true]);
       }
     }
+  });
+});
+
+describe('the shared front-mouth photos', () => {
+  it('groups the cards by visible mouth shape, as planned', () => {
+    const groups = {};
+    for (const card of ARTICULATION_CARDS) (groups[card.frontPhotoKey] ||= []).push(card.id);
+    expect(groups).toEqual({
+      'lips-closed': ['bilabial-closed'],
+      'lip-to-teeth': ['labiodental'],
+      'tongue-between-teeth': ['interdental'],
+      'neutral-open': ['alveolar-stop', 'lateral-l', 'velar', 'glottal-h', 'palatal-y'],
+      'teeth-close': ['alveolar-fricative'],
+      'slightly-rounded': ['postalveolar', 'postalveolar-affricate'],
+      'strongly-rounded': ['rounded-w', 'vowel-rounded-back'],
+      rhotic: ['rhotic-r'],
+      'smile-vowel': ['vowel-front'],
+      'open-vowel': ['vowel-open'],
+    });
+    expect(Object.keys(groups).sort()).toEqual(Object.keys(FRONT_PHOTOS).sort());
   });
 });

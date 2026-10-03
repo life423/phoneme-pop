@@ -20,7 +20,9 @@ export default function ArticulationCardsGallery() {
                 {i + 1}. {card.name}
               </span>
               <span>{card.sounds.map(soundLabel).join(' ')}</span>
-              <span className={photoFor(card.id) ? 'text-emerald-700' : 'text-amber-700'}>{photoFor(card.id) ? 'photo' : 'placeholder'}</span>
+              <span className={photoFor(card.frontPhotoKey) ? 'text-emerald-700' : 'text-amber-700'}>
+                {card.frontPhotoKey}: {photoFor(card.frontPhotoKey) ? 'photo' : 'placeholder'}
+              </span>
             </p>
           </li>
         ))}

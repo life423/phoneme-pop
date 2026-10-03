@@ -4,23 +4,40 @@
 // To add a card: add a pose, add a card here, and map its sounds below.
 
 export const ARTICULATION_CARDS = [
-  { id: 'bilabial-closed', title: 'Lip Popper', name: 'Bilabial', sounds: ['p', 'b', 'm'], instruction: 'Lips press together, then pop open.' },
-  { id: 'labiodental', title: 'Lip Biter', name: 'Labiodental', sounds: ['f', 'v'], instruction: 'Bottom lip touches upper teeth.' },
-  { id: 'interdental', title: 'Tongue Peeker', name: 'Interdental', sounds: ['th', 'dh'], instruction: 'Tongue peeks between the teeth.' },
-  { id: 'alveolar-stop', title: 'Tongue Tapper', name: 'Alveolar stop', sounds: ['t', 'd', 'n'], instruction: 'Tongue taps the ridge behind the teeth.' },
-  { id: 'alveolar-fricative', title: 'Snake Sound', name: 'Alveolar fricative', sounds: ['s', 'z'], instruction: 'Teeth close. Air hisses over the tongue.' },
-  { id: 'lateral-l', title: 'Tongue Lifter', name: 'Lateral', sounds: ['l'], instruction: 'Tongue tip lifts to the ridge.' },
-  { id: 'postalveolar', title: 'Quiet Sound', name: 'Postalveolar fricative', sounds: ['sh', 'zh'], instruction: 'Lips round. Quiet air pushes out.' },
-  { id: 'postalveolar-affricate', title: 'Chomper', name: 'Postalveolar affricate', sounds: ['ch', 'j'], instruction: 'Tongue presses up, then air bursts out.' },
-  { id: 'velar', title: 'Back Tongue Sound', name: 'Velar', sounds: ['k', 'g', 'ng'], instruction: 'Back of the tongue lifts up.' },
-  { id: 'glottal-h', title: 'Breathy Sound', name: 'Glottal', sounds: ['h'], instruction: 'Mouth open. Air breathes out.' },
-  { id: 'rounded-w', title: 'Lip Rounder', name: 'Rounded back glide', sounds: ['w'], instruction: 'Lips round into a small circle.' },
-  { id: 'rhotic-r', title: 'R Sound', name: 'Rhotic', sounds: ['r'], instruction: 'Tongue pulls back without touching.' },
-  { id: 'palatal-y', title: 'Y Sound', name: 'Palatal glide', sounds: ['y'], instruction: 'Middle of the tongue lifts up.' },
-  { id: 'vowel-front', title: 'Smile Vowel', name: 'Front vowel', sounds: ['ee', 'i', 'e'], instruction: 'Smile! Tongue stays high and forward.' },
-  { id: 'vowel-open', title: 'Open Mouth Vowel', name: 'Open vowel', sounds: ['a', 'ah'], instruction: 'Jaw drops. Mouth opens wide.' },
-  { id: 'vowel-rounded-back', title: 'Round Vowel', name: 'Rounded back vowel', sounds: ['o', 'oo'], instruction: 'Lips round. Tongue pulls back.' },
+  { id: 'bilabial-closed', frontPhotoKey: 'lips-closed', title: 'Lip Popper', name: 'Bilabial', sounds: ['p', 'b', 'm'], instruction: 'Lips press together, then pop open.' },
+  { id: 'labiodental', frontPhotoKey: 'lip-to-teeth', title: 'Lip Biter', name: 'Labiodental', sounds: ['f', 'v'], instruction: 'Bottom lip touches upper teeth.' },
+  { id: 'interdental', frontPhotoKey: 'tongue-between-teeth', title: 'Tongue Peeker', name: 'Interdental', sounds: ['th', 'dh'], instruction: 'Tongue peeks between the teeth.' },
+  { id: 'alveolar-stop', frontPhotoKey: 'neutral-open', title: 'Tongue Tapper', name: 'Alveolar stop', sounds: ['t', 'd', 'n'], instruction: 'Tongue taps the ridge behind the teeth.' },
+  { id: 'alveolar-fricative', frontPhotoKey: 'teeth-close', title: 'Snake Sound', name: 'Alveolar fricative', sounds: ['s', 'z'], instruction: 'Teeth close. Air hisses over the tongue.' },
+  { id: 'lateral-l', frontPhotoKey: 'neutral-open', title: 'Tongue Lifter', name: 'Lateral', sounds: ['l'], instruction: 'Tongue tip lifts to the ridge.' },
+  { id: 'postalveolar', frontPhotoKey: 'slightly-rounded', title: 'Quiet Sound', name: 'Postalveolar fricative', sounds: ['sh', 'zh'], instruction: 'Lips round. Quiet air pushes out.' },
+  { id: 'postalveolar-affricate', frontPhotoKey: 'slightly-rounded', title: 'Chomper', name: 'Postalveolar affricate', sounds: ['ch', 'j'], instruction: 'Tongue presses up, then air bursts out.' },
+  { id: 'velar', frontPhotoKey: 'neutral-open', title: 'Back Tongue Sound', name: 'Velar', sounds: ['k', 'g', 'ng'], instruction: 'Back of the tongue lifts up.' },
+  { id: 'glottal-h', frontPhotoKey: 'neutral-open', title: 'Breathy Sound', name: 'Glottal', sounds: ['h'], instruction: 'Mouth open. Air breathes out.' },
+  { id: 'rounded-w', frontPhotoKey: 'strongly-rounded', title: 'Lip Rounder', name: 'Rounded back glide', sounds: ['w'], instruction: 'Lips round into a small circle.' },
+  { id: 'rhotic-r', frontPhotoKey: 'rhotic', title: 'R Sound', name: 'Rhotic', sounds: ['r'], instruction: 'Tongue pulls back without touching.' },
+  { id: 'palatal-y', frontPhotoKey: 'neutral-open', title: 'Y Sound', name: 'Palatal glide', sounds: ['y'], instruction: 'Middle of the tongue lifts up.' },
+  { id: 'vowel-front', frontPhotoKey: 'smile-vowel', title: 'Smile Vowel', name: 'Front vowel', sounds: ['ee', 'i', 'e'], instruction: 'Smile! Tongue stays high and forward.' },
+  { id: 'vowel-open', frontPhotoKey: 'open-vowel', title: 'Open Mouth Vowel', name: 'Open vowel', sounds: ['a', 'ah'], instruction: 'Jaw drops. Mouth opens wide.' },
+  { id: 'vowel-rounded-back', frontPhotoKey: 'strongly-rounded', title: 'Round Vowel', name: 'Rounded back vowel', sounds: ['o', 'oo'], instruction: 'Lips round. Tongue pulls back.' },
 ];
+
+// The front-mouth photos. Cards whose visible mouth shape is essentially the same share one
+// photo: each card names its photo with frontPhotoKey, and the file is
+// src/assets/articulation/photos/<key>.webp (or .jpg, .png). Until a file exists, the card
+// shows its placeholder.
+export const FRONT_PHOTOS = {
+  'lips-closed': 'Lips closed',
+  'lip-to-teeth': 'Bottom lip to upper teeth',
+  'tongue-between-teeth': 'Tongue between the teeth',
+  'teeth-close': 'Teeth close together',
+  'slightly-rounded': 'Lips slightly rounded',
+  'neutral-open': 'Mouth slightly open',
+  'strongly-rounded': 'Lips strongly rounded',
+  rhotic: 'R mouth',
+  'smile-vowel': 'Smile',
+  'open-vowel': 'Mouth wide open',
+};
 
 // How each sound is written on a card. Two sounds share the spelling th, so they say which.
 export const SOUND_LABELS = { th: '/th/ as in think', dh: '/th/ as in this', j: '/j/ as in jump', y: '/y/ as in yes', a: '/a/ as in cat' };

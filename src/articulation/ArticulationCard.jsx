@@ -10,10 +10,11 @@ const DIAGRAMS = import.meta.glob('../assets/articulation/*.svg', { eager: true,
 const PHOTOS = import.meta.glob('../assets/articulation/photos/*.{jpg,jpeg,png,webp}', { eager: true, query: '?url', import: 'default' });
 
 export const diagramFor = (id) => DIAGRAMS[`../assets/articulation/${id}.svg`] || null;
-// A card's real mouth photo, if one has been added as src/assets/articulation/photos/<card id>.jpg (or .png, .webp).
-export function photoFor(id) {
-  const key = Object.keys(PHOTOS).find((path) => path.split('/').pop().split('.')[0] === id);
-  return key ? PHOTOS[key] : null;
+// The front-mouth photo for a photo key (a card's frontPhotoKey), if it has been added as
+// src/assets/articulation/photos/<key>.webp (or .jpg, .png). Several cards can share one.
+export function photoFor(key) {
+  const path = key && Object.keys(PHOTOS).find((file) => file.split('/').pop().split('.')[0] === key);
+  return path ? PHOTOS[path] : null;
 }
 
 const centreX = COLUMN.x + COLUMN.width / 2;
@@ -65,7 +66,7 @@ function MouthPlaceholder({ id }) {
 
 export default function ArticulationCard({ card, className = '' }) {
   const uid = useId().replace(/:/g, '');
-  const photo = photoFor(card.id);
+  const photo = photoFor(card.frontPhotoKey);
   const diagram = diagramFor(card.id);
   const size = titleSize(card.title);
   const m = MOUTH_REGION;
