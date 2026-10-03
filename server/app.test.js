@@ -180,3 +180,33 @@ describe('the picture library routes', () => {
     expect(added.at(-1).bytes.equals(jpeg)).toBe(true);
   });
 });
+
+describe('old cached pages', () => {
+  let oldServer;
+  let oldPort;
+  beforeAll(async () => {
+    oldServer = http.createServer(createApp());
+    await new Promise((resolve) => oldServer.listen(0, resolve));
+    oldPort = oldServer.address().port;
+  });
+  afterAll(() => oldServer.close());
+  const get = (path) =>
+    new Promise((resolve, reject) => {
+      http.get({ port: oldPort, path, headers: { host: 'localhost' } }, (res) => {
+        let body = '';
+        res.on('data', (chunk) => (body += chunk));
+        res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'], cache: res.headers['cache-control'], body }));
+      }).on('error', reject);
+    });
+
+  it('get a script that reloads them into the current site, not the app page', async () => {
+    const js = await get('/static/js/main.dea4039c.js');
+    expect(js.status).toBe(200);
+    expect(js.type).toMatch(/javascript/);
+    expect(js.cache).toBe('no-store');
+    expect(js.body).toContain('location.reload');
+    const css = await get('/static/css/main.0a1b2c3d.css');
+    expect(css.type).toMatch(/text\/css/);
+    expect(css.body).toBe('');
+  });
+});
