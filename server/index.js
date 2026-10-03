@@ -26,6 +26,16 @@ const SECURITY_HEADERS = {
   'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=()', // camera and mic for video calls, this site only
 };
 
+// Sent to an old cached page in place of its old code (old-browser-friendly on purpose). It
+// refetches the page, which updates the browser's saved copy, then reloads once.
+const OLD_PAGE_RELOAD = `(function () {
+  try {
+    if (sessionStorage.getItem('old-page-reloaded')) return;
+    sessionStorage.setItem('old-page-reloaded', '1');
+  } catch (e) {}
+  fetch('/', { cache: 'reload' }).catch(function () {}).then(function () { location.reload(); });
+})();`;
+
 // What kind of image the bytes really are (never trust the declared type), or null.
 export function imageType(buf) {
   if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
@@ -109,6 +119,17 @@ export function createApp({ pictures, library } = {}) {
       }
     });
   }
+
+  // Pages from the site's old version (a Create React App build) can still be saved in a
+  // browser's cache. They ask for their old code under /static, which no longer exists: answer
+  // with a script that refreshes the browser's copy of the page and reloads, so the visitor lands
+  // on the current site instead of a blank page. Their old styles get an empty stylesheet.
+  app.get(/^\/static\/js\/[^/]+\.js$/, (req, res) => {
+    res.set('Cache-Control', 'no-store').type('application/javascript').send(OLD_PAGE_RELOAD);
+  });
+  app.get(/^\/static\/css\/[^/]+\.css$/, (req, res) => {
+    res.set('Cache-Control', 'no-store').type('text/css').send('');
+  });
 
   // Hashed build assets cache forever; a missing one is a 404, not the app shell.
   app.use(
