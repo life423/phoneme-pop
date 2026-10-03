@@ -9,6 +9,18 @@ function PhotoStatus({ photoKey }) {
   return <span className='rounded bg-red-600 px-1.5 py-0.5 text-xs font-bold text-white'>MISSING PHOTO: {photoKey}</span>;
 }
 
+// One card alone at its full 1200 x 1200 size (/dev/articulation-cards/<card id>), so a
+// script can save it as a picture for the library.
+export function ArticulationCardPage({ id }) {
+  const card = ARTICULATION_CARDS.find((c) => c.id === id);
+  if (!card) return <p className='p-8'>No articulation card called {id}.</p>;
+  return (
+    <div style={{ width: 1200, height: 1200, background: '#ffffff' }}>
+      <ArticulationCard card={card} className='block h-[1200px] w-[1200px]' />
+    </div>
+  );
+}
+
 // A developer page (/dev/articulation-cards): all 16 complete cards side by side.
 export default function ArticulationCardsGallery() {
   const m = MOUTH_REGION;
