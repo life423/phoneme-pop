@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARTICULATION_CARDS, FRONT_PHOTOS, cardSoundLine } from '../data/articulationCards.js';
+import { ARTICULATION_CARDS, FRONT_PHOTOS, FRONT_PHOTO_STAND_INS, cardSoundLine } from '../data/articulationCards.js';
 import { BANNER, CARD, COLUMN, DIAGRAM, INSTRUCTION, MOUTH_REGION, PHOTO, SOUND, fitText, titleSize } from './cardLayout.js';
 
 describe('the articulation card layout', () => {
@@ -45,5 +45,11 @@ describe('the shared front-mouth photos', () => {
       'open-vowel': ['vowel-open'],
     });
     expect(Object.keys(groups).sort()).toEqual(Object.keys(FRONT_PHOTOS).sort());
+  });
+
+  it('only lets a group borrow the photo of another real group', () => {
+    for (const [key, standIn] of Object.entries(FRONT_PHOTO_STAND_INS)) {
+      expect([key, key in FRONT_PHOTOS, standIn in FRONT_PHOTOS, key !== standIn]).toEqual([key, true, true, true]);
+    }
   });
 });

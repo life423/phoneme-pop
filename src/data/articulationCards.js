@@ -39,6 +39,10 @@ export const FRONT_PHOTOS = {
   'open-vowel': 'Mouth wide open',
 };
 
+// A group without its own photo yet can borrow the closest group's photo instead of showing
+// the placeholder. Remove an entry once that group has its own photo.
+export const FRONT_PHOTO_STAND_INS = { rhotic: 'slightly-rounded' };
+
 // How each sound is written on a card. Two sounds share the spelling th, so they say which.
 export const SOUND_LABELS = { th: '/th/ as in think', dh: '/th/ as in this', j: '/j/ as in jump', y: '/y/ as in yes', a: '/a/ as in cat' };
 export const soundLabel = (sound) => SOUND_LABELS[sound] || `/${sound}/`;

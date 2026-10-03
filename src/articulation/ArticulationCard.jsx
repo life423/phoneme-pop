@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { cardSoundLine } from '../data/articulationCards.js';
+import { FRONT_PHOTO_STAND_INS, cardSoundLine } from '../data/articulationCards.js';
 import { BANNER, CARD, COLUMN, DIAGRAM, FONT, INSTRUCTION, MOUTH_REGION, PALETTE, PHOTO, SOUND, fitText, titleSize } from './cardLayout.js';
 
 // One complete articulation card, drawn from data: title banner, the large mouth photo (or a
@@ -10,11 +10,20 @@ const DIAGRAMS = import.meta.glob('../assets/articulation/*.svg', { eager: true,
 const PHOTOS = import.meta.glob('../assets/articulation/photos/*.{jpg,jpeg,png,webp}', { eager: true, query: '?url', import: 'default' });
 
 export const diagramFor = (id) => DIAGRAMS[`../assets/articulation/${id}.svg`] || null;
-// The front-mouth photo for a photo key (a card's frontPhotoKey), if it has been added as
-// src/assets/articulation/photos/<key>.webp (or .jpg, .png). Several cards can share one.
-export function photoFor(key) {
+// The photo file for a photo key: src/assets/articulation/photos/<key>.webp (or .jpg, .png).
+function fileFor(key) {
   const path = key && Object.keys(PHOTOS).find((file) => file.split('/').pop().split('.')[0] === key);
   return path ? PHOTOS[path] : null;
+}
+
+// The front-mouth photo for a card's frontPhotoKey: its own photo, or the closest group's photo
+// if it has a stand-in, or null (the card shows its placeholder). Several cards can share one.
+export const photoFor = (key) => fileFor(key) || fileFor(FRONT_PHOTO_STAND_INS[key]);
+
+// 'photo' (its own), 'stand-in' (the closest group's) or 'missing'.
+export function photoStatus(key) {
+  if (fileFor(key)) return 'photo';
+  return fileFor(FRONT_PHOTO_STAND_INS[key]) ? 'stand-in' : 'missing';
 }
 
 const centreX = COLUMN.x + COLUMN.width / 2;
