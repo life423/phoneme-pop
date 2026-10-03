@@ -635,3 +635,17 @@ describe('library cards with predefined regions', () => {
     await nothing(tutor, 'piece:add');
   });
 });
+
+describe('library cards in a session', () => {
+  it('keeps them apart from uploads: their own limit, with their card id and title', async () => {
+    const { code, key } = await openRoom();
+    const { student } = await joinRoom(code);
+    for (let i = 0; i < 9; i++) {
+      const id = i.toString(16).padStart(32, 'c');
+      expect(realtime.pictures.add({ code, key, id, w: 100, h: 100, type: 'image/jpeg', bytes: Buffer.alloc(10), library: `card${i}`, title: `Card ${i}` }).status).toBe(201);
+    }
+    expect((await student.take('pic:add')).pic).toMatchObject({ library: 'card0', title: 'Card 0' });
+    const upload = { code, key, id: 'd'.repeat(32), w: 100, h: 100, type: 'image/jpeg', bytes: Buffer.alloc(10) };
+    expect(realtime.pictures.add(upload).status).toBe(201); // nine library cards, and an upload still fits
+  });
+});

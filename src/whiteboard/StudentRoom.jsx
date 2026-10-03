@@ -9,7 +9,7 @@ import { PARKED_HAND, STAGE, letterAt } from './stage.js';
 import WhiteboardLayout from './WhiteboardLayout.jsx';
 import AlphabetBar from './AlphabetBar.jsx';
 import { ToolButton, ToolRail } from './Toolbar.jsx';
-import PicturesPanel from './PicturesPanel.jsx';
+import PicturesPanel, { PictureDrawer } from './PicturesPanel.jsx';
 import { pictureUrl } from './pictures.js';
 import { useVideoCall } from './useVideoCall.js';
 import { FocusButton, MessageScreen, StageNotice, StatusPill, TopBar } from './ui.jsx';
@@ -32,6 +32,7 @@ export default function StudentRoom({ code }) {
   const [toolsOn, setToolsOn] = useState(false);
   const [tool, setTool] = useState('hand');
   const stageApi = useRef(null);
+  const [browsing, setBrowsing] = useState(false); // the picture library slide-out
   const layout = useRef(null); // the shared layout: open a panel, focus mode
   // Zoom and pan are this screen's own. The tutor sees which part of the board it shows, and
   // can bring it to the part they're teaching (follow tutor).
@@ -186,7 +187,18 @@ export default function StudentRoom({ code }) {
 
   const markers = [tutorMarker && { key: 'tutor', ...tutorMarker }, myMarker && { key: 'me', ...myMarker }].filter(Boolean);
 
+  // The Pictures panel's settings, shared by the side column (or sheet) and the slide-out.
+  const pictureProps = {
+    pictures: wb.pictures,
+    offers: wb.offers,
+    canTake: toolsOn,
+    srcFor: (id) => pictureUrl(code, id),
+    onPlace: wb.pieceActions.add,
+    stageApi,
+  };
+
   return (
+    <>
     <WhiteboardLayout
       header={
         <TopBar
@@ -263,18 +275,14 @@ export default function StudentRoom({ code }) {
           label: 'Pictures',
           icon: ImageIcon,
           content: (
-            <PicturesPanel
-              pictures={wb.pictures}
-              offers={wb.offers}
-              canTake={toolsOn}
-              srcFor={(id) => pictureUrl(code, id)}
-              onPlace={wb.pieceActions.add}
-              stageApi={stageApi}
-              onPlaced={() => layout.current?.closeSheet()}
-            />
+            <PicturesPanel {...pictureProps} onBrowse={() => setBrowsing(true)} onShow={() => layout.current?.show('pictures')} onPlaced={() => layout.current?.closeSheet()} />
           ),
         },
       ]}
     />
+    <PictureDrawer open={browsing} onClose={() => setBrowsing(false)}>
+      <PicturesPanel {...pictureProps} layout='drawer' browseOnly onPlaced={() => setBrowsing(false)} />
+    </PictureDrawer>
+    </>
   );
 }

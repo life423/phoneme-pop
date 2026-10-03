@@ -55,6 +55,8 @@ function viewRect(m) {
   return w >= 20 && h >= 20 ? { x, y, w, h } : null;
 }
 
+const MAX_LIBRARY_PICTURES = 32; // library cards a session may hold; uploads have their own limit
+
 // A library card's predefined Magic Select regions (its mouth photo), checked: up to 8, each a
 // named box inside the picture.
 function cleanRegions(list, w, h) {
@@ -68,6 +70,11 @@ function cleanRegions(list, w, h) {
       region.x >= 0 && region.y >= 0 && region.w >= 8 && region.h >= 8 && region.x + region.w <= w && region.y + region.h <= h;
     return ok ? [region] : [];
   });
+}
+
+// What both screens learn about a picture: its size, plus a library card's id, title and regions.
+function sharedPicture({ id, w, h, regions, library, title }) {
+  return { id, w, h, ...(regions?.length ? { regions } : {}), ...(library ? { library } : {}), ...(title ? { title } : {}) };
 }
 
 // Azure's ingress appends the real client address as the last X-Forwarded-For entry.
@@ -128,7 +135,7 @@ export function attachRealtime(server, options = {}) {
     boxes: room.boxes,
     strokes: room.strokes.map(({ id, by, tool, pts, seq }) => ({ id, by, tool, pts, seq })),
     tiles: [...room.tiles.values()],
-    pictures: [...room.pictures.values()].map(({ id, w, h, regions }) => (regions?.length ? { id, w, h, regions } : { id, w, h })),
+    pictures: [...room.pictures.values()].map(sharedPicture),
     pieces: [...room.pieces.values()],
     offers: [...room.offers.values()],
   });
@@ -829,18 +836,23 @@ export function attachRealtime(server, options = {}) {
 
   // Picture uploads arrive over HTTP (see index.js), from the room's tutor only.
   const pictures = {
-    add({ code, key, id, w, h, type, bytes, regions }) {
+    add({ code, key, id, w, h, type, bytes, regions, library, title }) {
       const room = isCode(code) ? rooms.get(code) : undefined;
       if (!room || !isKey(key) || room.key !== key) return { status: 403 };
       const sideOk = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_PICTURE_SIDE;
       if (!isPictureId(id) || !sideOk(w) || !sideOk(h)) return { status: 400 };
       if (room.pictures.has(id)) return { status: 200 }; // already here (a retry, or a restore)
-      if (room.pictures.size >= MAX_PICTURES) return { status: 409 };
+      // Uploads and library cards have separate limits (library cards are first-party).
+      const card = typeof library === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(library) ? library : null;
+      const alike = [...room.pictures.values()].filter((p) => Boolean(p.library) === Boolean(card)).length;
+      if (alike >= (card ? MAX_LIBRARY_PICTURES : MAX_PICTURES)) return { status: 409 };
       if (pictureBytes + bytes.length > maxPictureBytes) return { status: 503 };
       const known = cleanRegions(regions, w, h);
-      room.pictures.set(id, { id, w, h, type, bytes, regions: known });
+      const name = card && typeof title === 'string' ? title.trim().slice(0, 60) : '';
+      const picture = { id, w, h, type, bytes, regions: known, library: card, title: name };
+      room.pictures.set(id, picture);
       pictureBytes += bytes.length;
-      broadcast(room, { t: 'pic:add', pic: known.length ? { id, w, h, regions: known } : { id, w, h } });
+      broadcast(room, { t: 'pic:add', pic: sharedPicture(picture) });
       return { status: 201 };
     },
     get(code, id) {

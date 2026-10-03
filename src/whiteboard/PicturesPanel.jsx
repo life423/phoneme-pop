@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BoxSelect, Gift, Image as ImageIcon, Plus, Wand2 } from 'lucide-react';
+import { ArrowLeft, BoxSelect, Check, Gift, Image as ImageIcon, LayoutGrid, Plus, Wand2, X } from 'lucide-react';
 import { regionAt } from './regions.js';
 import { pictureRegions } from './pictures.js';
 import { MAX_PICTURES, startingWidth } from '../../shared/pieces.js';
@@ -85,6 +85,10 @@ export default function PicturesPanel({
   onAddFile,
   library = [],
   onAddFromLibrary,
+  onGiveAll,
+  onBrowse,
+  layout = 'side', // 'side' (the column or sheet) or 'drawer' (the picture library slide-out)
+  browseOnly = false, // just the pictures: no adding, library or paste (the slide-out)
   onClear,
   onPlace,
   onPlaced,
@@ -106,6 +110,7 @@ export default function PicturesPanel({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(null);
   const [armed, setArmed] = useState(false);
+  const [libraryNote, setLibraryNote] = useState(null);
   const fileRef = useRef(null);
   const svgRef = useRef(null);
   const press = useRef(null);
@@ -121,6 +126,7 @@ export default function PicturesPanel({
   const predefined = pic?.regions?.length ? pic.regions : null;
   const predefinedKey = predefined ? predefined.map((r) => `${r.id}:${r.x},${r.y},${r.w},${r.h}`).join(';') : '';
   const takeable = student && predefined ? predefined : [];
+  const inSession = (card) => pictures.some((p) => p.library === card.id);
 
   // Each picture's parts are found once, when the tutor first opens it.
   useEffect(() => {
@@ -153,6 +159,16 @@ export default function PicturesPanel({
     else if (result?.id) setOpenId(result.id);
   };
 
+  // Every library card joins the session, so the student can open any of them.
+  const giveAll = async () => {
+    if (!onGiveAll) return;
+    setBusy(true);
+    setLibraryNote(null);
+    const result = await onGiveAll(library);
+    setBusy(false);
+    setLibraryNote(result?.error || (result?.added ? `${result.added} cards added. Your student can open them from Pictures.` : 'Every library card is already in this session.'));
+  };
+
   // A card from the picture library joins the session and opens, ready for Magic Select.
   const addCard = async (card) => {
     if (!canAdd || !onAddFromLibrary) return;
@@ -166,7 +182,7 @@ export default function PicturesPanel({
 
   // Pasting an image anywhere on the page adds it (tutor only).
   useEffect(() => {
-    if (!canAdd) return undefined;
+    if (!canAdd || browseOnly) return undefined;
     const onPaste = (event) => {
       const file = [...(event.clipboardData?.files || [])].find((f) => f.type.startsWith('image/'));
       if (!file) return;
@@ -312,8 +328,13 @@ export default function PicturesPanel({
           <ArrowLeft className='h-4 w-4' aria-hidden='true' />
           All pictures
         </button>
-        <div className='relative overflow-hidden rounded-xl border border-slate-200 bg-white'>
-          <img src={src} alt='' draggable={false} className='block w-full select-none' />
+        <div className={`relative overflow-hidden rounded-xl border border-slate-200 bg-white ${layout === 'drawer' ? 'mx-auto w-fit' : ''}`}>
+          <img
+            src={src}
+            alt=''
+            draggable={false}
+            className={layout === 'drawer' ? 'block h-auto max-h-[calc(100dvh-15rem)] w-auto max-w-full select-none' : 'block w-full select-none'}
+          />
           <svg
             ref={svgRef}
             viewBox={`0 0 ${pic.w} ${pic.h}`}
@@ -405,15 +426,15 @@ export default function PicturesPanel({
 
   return (
     <section aria-label='Pictures' className={card}>
-      <div className='flex items-center justify-between'>
+      <div className={`flex items-center justify-between ${browseOnly ? 'hidden' : ''}`}>
         <h2 className='text-sm font-bold text-slate-700'>Pictures</h2>
         {!student && (
           <span className='text-xs font-semibold text-slate-500'>
-            {pictures.length}/{MAX_PICTURES}
+            {pictures.filter((p) => !p.library).length}/{MAX_PICTURES} uploads
           </span>
         )}
       </div>
-      {canAdd && (
+      {canAdd && !browseOnly && (
         <>
           <button
             type='button'
@@ -443,15 +464,33 @@ export default function PicturesPanel({
           {note}
         </p>
       )}
-      {canAdd && library.length > 0 && (
+      {canAdd && !browseOnly && library.length > 0 && (
         <div className='flex flex-col gap-1.5'>
-          <h3 className='text-xs font-bold uppercase tracking-wide text-slate-500'>Library</h3>
+          <div className='flex items-center justify-between gap-2'>
+            <h3 className='text-xs font-bold uppercase tracking-wide text-slate-500'>Library</h3>
+            {library.length > 1 && onGiveAll && (
+              <button
+                type='button'
+                disabled={busy || library.every(inSession)}
+                onClick={giveAll}
+                className='inline-flex items-center gap-1.5 rounded-full bg-violet-600 px-3 py-1 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-50'
+              >
+                <Gift className='h-3.5 w-3.5' aria-hidden='true' />
+                {busy ? 'Adding…' : 'Give all to student'}
+              </button>
+            )}
+          </div>
+          {libraryNote && (
+            <p role='status' className='text-xs font-semibold text-slate-600'>
+              {libraryNote}
+            </p>
+          )}
           <ul className='flex flex-col gap-1.5'>
             {library.map((card) => (
               <li key={card.id}>
                 <button
                   type='button'
-                  disabled={busy || pictures.length >= MAX_PICTURES}
+                  disabled={busy || inSession(card)}
                   onClick={() => addCard(card)}
                   className='flex w-full items-center gap-3 rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-left hover:border-violet-400 disabled:opacity-50'
                 >
@@ -462,7 +501,14 @@ export default function PicturesPanel({
                       {[card.collection, (card.sounds || []).map((s) => `/${s}/`).join(' ')].filter(Boolean).join(' · ')}
                     </span>
                   </span>
-                  <Plus className='h-4 w-4 shrink-0 text-violet-600' aria-hidden='true' />
+                  {inSession(card) ? (
+                    <span className='inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-emerald-700'>
+                      <Check className='h-4 w-4' aria-hidden='true' />
+                      In session
+                    </span>
+                  ) : (
+                    <Plus className='h-4 w-4 shrink-0 text-violet-600' aria-hidden='true' />
+                  )}
                 </button>
               </li>
             ))}
@@ -470,30 +516,44 @@ export default function PicturesPanel({
           {shown.length > 0 && <h3 className='mt-1 text-xs font-bold uppercase tracking-wide text-slate-500'>In this session</h3>}
         </div>
       )}
+      {layout === 'side' && onBrowse && shown.length > 0 && (
+        <button type='button' onClick={onBrowse} className={secondary}>
+          <LayoutGrid className='h-4 w-4' aria-hidden='true' />
+          Open picture library
+        </button>
+      )}
       {shown.length === 0 ? (
         <p className='text-sm text-slate-500'>
           {student ? 'Your tutor hasn’t added any pictures yet.' : 'Add a worksheet or picture, then lift parts out of it with Magic Select.'}
         </p>
       ) : (
-        <ul className='-mx-1 flex max-h-[45vh] flex-col gap-2 overflow-y-auto px-1'>
+        <ul className={layout === 'drawer' ? 'grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-3' : '-mx-1 flex max-h-[45vh] flex-col gap-2 overflow-y-auto px-1'}>
           {shown.map((p, i) => (
             <li key={p.id}>
               <button
                 type='button'
-                aria-label={`Open picture ${i + 1}`}
+                aria-label={`Open ${p.title || `picture ${i + 1}`}`}
                 onClick={() => {
                   setNote(null);
                   setOpenId(p.id);
                 }}
                 className='block w-full overflow-hidden rounded-xl border-2 border-slate-200 bg-white hover:border-violet-400'
               >
-                <img src={srcFor(p.id)} alt='' draggable={false} className='mx-auto block max-h-40 w-auto' />
+                <img
+                  src={srcFor(p.id)}
+                  alt=''
+                  draggable={false}
+                  className={layout === 'drawer' ? 'block aspect-square h-auto w-full object-contain' : 'mx-auto block max-h-40 w-auto'}
+                />
+                {layout === 'drawer' && p.title && (
+                  <span className='block truncate border-t border-slate-100 px-2 py-1.5 text-left text-sm font-bold text-slate-800'>{p.title}</span>
+                )}
               </button>
             </li>
           ))}
         </ul>
       )}
-      {canAdd && pictures.length > 0 && (
+      {canAdd && !browseOnly && pictures.length > 0 && (
         <button
           type='button'
           onClick={() => {
@@ -508,5 +568,50 @@ export default function PicturesPanel({
         </button>
       )}
     </section>
+  );
+}
+
+// The picture library slide-out: the session's pictures as a grid, and a big view of the one
+// opened, sliding in over the board from the right (the whole screen on phones).
+export function PictureDrawer({ open, onClose, title = 'Picture library', children }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+  return (
+    <div className={`fixed inset-0 z-50 ${open ? '' : 'pointer-events-none'}`} aria-hidden={!open}>
+      <div
+        className={`absolute inset-0 bg-slate-900/20 transition-opacity duration-300 motion-reduce:transition-none ${open ? 'opacity-100' : 'opacity-0'}`}
+        onClick={onClose}
+      />
+      <aside
+        role='dialog'
+        aria-modal='true'
+        aria-label={title}
+        className={`absolute inset-y-0 right-0 flex w-full flex-col bg-slate-50 shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none sm:w-[min(52rem,92vw)] ${
+          open ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <header className='flex items-center gap-3 border-b border-slate-200 bg-white px-5 py-4'>
+          <span className='flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 text-white'>
+            <LayoutGrid className='h-5 w-5' aria-hidden='true' />
+          </span>
+          <h2 className='text-lg font-extrabold text-slate-900'>{title}</h2>
+          <button
+            type='button'
+            onClick={onClose}
+            className='ml-auto inline-flex items-center gap-1.5 rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50'
+          >
+            <X className='h-4 w-4' aria-hidden='true' />
+            Close
+          </button>
+        </header>
+        <div className='min-h-0 flex-1 overflow-y-auto p-4'>{open && children}</div>
+      </aside>
+    </div>
   );
 }
