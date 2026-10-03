@@ -642,6 +642,18 @@ export function attachRealtime(server, options = {}) {
       if (roleOf(ws) !== 'student' || !rect || !allow(ws, 'view', 12)) return;
       send(otherSide(ws.room, 'student'), { t: 'view', ...rect });
     },
+    // The picture library, shared as awareness, never control: the student's screen says whether
+    // the slide-out is open and which picture they're on; the tutor can point at a picture.
+    browse(ws, msg) {
+      if (roleOf(ws) !== 'student' || !allow(ws, 'view', 12)) return;
+      const pic = isPictureId(msg.pic) && ws.room.pictures.has(msg.pic) ? msg.pic : null;
+      send(otherSide(ws.room, 'student'), { t: 'browse', open: msg.open === true, pic });
+    },
+    guide(ws, msg) {
+      if (!isTutor(ws) || !allow(ws, 'view', 12)) return;
+      const pic = isPictureId(msg.pic) && ws.room.pictures.has(msg.pic) ? msg.pic : null;
+      send(otherSide(ws.room, 'tutor'), { t: 'guide', pic });
+    },
     focus(ws, msg) {
       const rect = viewRect(msg);
       if (!isTutor(ws) || !rect || !allow(ws, 'view', 12)) return;

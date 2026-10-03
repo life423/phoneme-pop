@@ -33,6 +33,8 @@ export default function StudentRoom({ code }) {
   const [tool, setTool] = useState('hand');
   const stageApi = useRef(null);
   const [browsing, setBrowsing] = useState(false); // the picture library slide-out
+  const [viewingPic, setViewingPic] = useState(null); // the picture open in the slide-out
+  const [guidePic, setGuidePic] = useState(null); // the picture the tutor is pointing at
   const layout = useRef(null); // the shared layout: open a panel, focus mode
   // Zoom and pan are this screen's own. The tutor sees which part of the board it shows, and
   // can bring it to the part they're teaching (follow tutor).
@@ -75,6 +77,11 @@ export default function StudentRoom({ code }) {
       if (call.handle(msg)) return;
       if (msg.t === 'board') applyTools(Boolean(msg.tools), false);
       if (wb.handle(msg)) return;
+      if (msg.t === 'guide') {
+        setGuidePic(msg.pic || null);
+        if (msg.pic) setBrowsing(true); // the tutor is showing them a picture: open the library
+        return;
+      }
       if (msg.t === 'focus') return setFollow({ x: msg.x, y: msg.y, w: msg.w, h: msg.h, n: Date.now() });
       if (msg.t === 'tools') {
         applyTools(Boolean(msg.on), true);
@@ -133,6 +140,10 @@ export default function StudentRoom({ code }) {
   useEffect(() => {
     if (tutorHere && lastView.current) sendRef.current?.({ t: 'view', ...lastView.current });
   }, [tutorHere]);
+  // The tutor sees whether the picture library is open here and which picture is open.
+  useEffect(() => {
+    sendRef.current?.({ t: 'browse', open: browsing, pic: browsing ? viewingPic : null });
+  }, [browsing, viewingPic, tutorHere]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -192,6 +203,7 @@ export default function StudentRoom({ code }) {
     pictures: wb.pictures,
     offers: wb.offers,
     canTake: toolsOn,
+    guidePic,
     srcFor: (id) => pictureUrl(code, id),
     onPlace: wb.pieceActions.add,
     stageApi,
@@ -275,13 +287,29 @@ export default function StudentRoom({ code }) {
           label: 'Pictures',
           icon: ImageIcon,
           content: (
-            <PicturesPanel {...pictureProps} onBrowse={() => setBrowsing(true)} onShow={() => layout.current?.show('pictures')} onPlaced={() => layout.current?.closeSheet()} />
+            <PicturesPanel {...pictureProps} notice={guidePic && !browsing ? { text: 'Your tutor picked a picture for you.', tone: 'sky', action: { label: 'Open picture library', onClick: () => setBrowsing(true) } } : null} onBrowse={() => setBrowsing(true)} onShow={() => layout.current?.show('pictures')} onPlaced={() => layout.current?.closeSheet()} />
           ),
         },
       ]}
     />
-    <PictureDrawer open={browsing} onClose={() => setBrowsing(false)}>
-      <PicturesPanel {...pictureProps} layout='drawer' browseOnly onPlaced={() => setBrowsing(false)} />
+    <PictureDrawer
+      open={browsing}
+      onClose={() => {
+        setBrowsing(false);
+        setViewingPic(null);
+      }}
+    >
+      <PicturesPanel
+        {...pictureProps}
+        layout='drawer'
+        browseOnly
+        onOpenChange={setViewingPic}
+        notice={guidePic ? { text: 'Your tutor picked a picture for you. Look for the blue glow.', tone: 'sky' } : null}
+        onPlaced={() => {
+          setBrowsing(false);
+          setViewingPic(null);
+        }}
+      />
     </PictureDrawer>
     </>
   );

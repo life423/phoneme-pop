@@ -48,6 +48,8 @@ export default function TutorRoom() {
   }, [selectedTileId]);
   const stageApi = useRef(null);
   const [browsing, setBrowsing] = useState(false); // the picture library slide-out
+  const [studentBrowse, setStudentBrowse] = useState({ open: false, pic: null }); // where the student is browsing
+  const [guidePic, setGuidePic] = useState(null); // the picture this tutor is pointing at
   // The picture library, which this tutor's live room can draw from.
   const [library, setLibrary] = useState([]);
   useEffect(() => {
@@ -84,6 +86,7 @@ export default function TutorRoom() {
       if (call.handle(msg)) return;
       if (msg.t === 'board') setStudentTools(Boolean(msg.tools));
       if (wb.handle(msg)) return;
+      if (msg.t === 'browse') return setStudentBrowse({ open: msg.open === true, pic: msg.pic || null });
       if (msg.t === 'view') return setStudentView({ x: msg.x, y: msg.y, w: msg.w, h: msg.h });
       if (msg.t === 'room') {
         const saved = { code: msg.code, key: msg.key };
@@ -215,7 +218,16 @@ export default function TutorRoom() {
     onReset: wb.offerActions.reset,
     onPlace: wb.pieceActions.add,
     stageApi,
+    guidePic,
+    onGuide: (pic) => {
+      setGuidePic(pic);
+      send({ t: 'guide', pic });
+    },
+    peerPic: studentHere && studentBrowse.open ? studentBrowse.pic : null,
   };
+  const studentPicTitle = wb.pictures.find((p) => p.id === studentBrowse.pic)?.title;
+  const studentBrowsing = studentHere && studentBrowse.open;
+  const browseText = studentPicTitle ? `Your student is looking at ${studentPicTitle}.` : 'Your student opened the picture library.';
 
   return (
     <>
@@ -377,13 +389,19 @@ export default function TutorRoom() {
           label: 'Pictures',
           icon: ImageIcon,
           content: (
-            <PicturesPanel {...pictureProps} onBrowse={() => setBrowsing(true)} onShow={() => layout.current?.show('pictures')} onPlaced={() => layout.current?.closeSheet()} />
+            <PicturesPanel {...pictureProps} notice={studentBrowsing ? { text: browseText, tone: 'violet', action: { label: 'View with them', onClick: () => setBrowsing(true) } } : null} onBrowse={() => setBrowsing(true)} onShow={() => layout.current?.show('pictures')} onPlaced={() => layout.current?.closeSheet()} />
           ),
         },
       ]}
     />
     <PictureDrawer open={browsing} onClose={() => setBrowsing(false)}>
-      <PicturesPanel {...pictureProps} layout='drawer' browseOnly onPlaced={() => setBrowsing(false)} />
+      <PicturesPanel
+        {...pictureProps}
+        layout='drawer'
+        browseOnly
+        notice={studentBrowsing ? { text: browseText, tone: 'violet' } : { text: 'Point at a picture to show it to your student.', tone: 'sky' }}
+        onPlaced={() => setBrowsing(false)}
+      />
     </PictureDrawer>
     </>
   );

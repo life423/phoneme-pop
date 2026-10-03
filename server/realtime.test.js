@@ -649,3 +649,23 @@ describe('library cards in a session', () => {
     expect(realtime.pictures.add(upload).status).toBe(201); // nine library cards, and an upload still fits
   });
 });
+
+describe('the shared picture library', () => {
+  it('tells the tutor where the student is browsing, and shows the student the tutor pick', async () => {
+    const { tutor, code, key } = await openRoom();
+    const { student } = await joinRoom(code);
+    const pic = 'e'.repeat(32);
+    realtime.pictures.add({ code, key, id: pic, w: 100, h: 100, type: 'image/jpeg', bytes: Buffer.alloc(10) });
+    await student.take('pic:add');
+    student.send({ t: 'browse', open: true, pic });
+    expect(await tutor.take('browse')).toMatchObject({ open: true, pic });
+    student.send({ t: 'browse', open: true, pic: 'f'.repeat(32) }); // not a picture in this session
+    expect((await tutor.take('browse')).pic).toBeNull();
+    tutor.send({ t: 'guide', pic });
+    expect(await student.take('guide')).toMatchObject({ pic });
+    student.send({ t: 'guide', pic }); // only the tutor points
+    await nothing(tutor, 'guide');
+    tutor.send({ t: 'browse', open: true, pic }); // only the student reports
+    await nothing(student, 'browse');
+  });
+});

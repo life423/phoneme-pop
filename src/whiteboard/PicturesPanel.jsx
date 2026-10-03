@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BoxSelect, Check, Gift, Image as ImageIcon, LayoutGrid, Plus, Wand2, X } from 'lucide-react';
+import { ArrowLeft, BoxSelect, Check, Gift, Image as ImageIcon, LayoutGrid, Plus, Pointer, Wand2, X } from 'lucide-react';
 import { regionAt } from './regions.js';
 import { pictureRegions } from './pictures.js';
 import { MAX_PICTURES, startingWidth } from '../../shared/pieces.js';
@@ -89,6 +89,11 @@ export default function PicturesPanel({
   onBrowse,
   layout = 'side', // 'side' (the column or sheet) or 'drawer' (the picture library slide-out)
   browseOnly = false, // just the pictures: no adding, library or paste (the slide-out)
+  peerPic = null, // the picture the student is looking at (shown to the tutor, violet)
+  guidePic = null, // the picture the tutor is pointing at (blue)
+  onGuide, // tutor: point at a picture, or stop (null)
+  onOpenChange, // told which picture is open (or null)
+  notice = null, // a line at the top: { text, tone: 'violet' | 'sky', action?: { label, onClick } }
   onClear,
   onPlace,
   onPlaced,
@@ -111,6 +116,11 @@ export default function PicturesPanel({
   const [note, setNote] = useState(null);
   const [armed, setArmed] = useState(false);
   const [libraryNote, setLibraryNote] = useState(null);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+  useEffect(() => {
+    onOpenChangeRef.current?.(openId);
+  }, [openId]);
   const fileRef = useRef(null);
   const svgRef = useRef(null);
   const press = useRef(null);
@@ -328,6 +338,17 @@ export default function PicturesPanel({
           <ArrowLeft className='h-4 w-4' aria-hidden='true' />
           All pictures
         </button>
+        {student && guidePic && guidePic !== pic.id && (
+          <div role='status' className='flex flex-wrap items-center gap-2 rounded-xl bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800'>
+            <span className='h-2 w-2 shrink-0 rounded-full bg-sky-500' aria-hidden='true' />
+            <span className='min-w-0 flex-1'>Your tutor picked a different picture.</span>
+            <button type='button' onClick={() => setOpenId(guidePic)} className='rounded-full bg-white px-2.5 py-0.5 text-xs font-bold shadow-sm ring-1 ring-sky-200 hover:bg-sky-50'>
+              Show me
+            </button>
+          </div>
+        )}
+        {student && guidePic === pic.id && <p className='text-sm font-semibold text-sky-700'>Your tutor picked this one.</p>}
+        {!student && peerPic === pic.id && <p className='text-sm font-semibold text-violet-700'>Your student is looking at this too.</p>}
         <div className={`relative overflow-hidden rounded-xl border border-slate-200 bg-white ${layout === 'drawer' ? 'mx-auto w-fit' : ''}`}>
           <img
             src={src}
@@ -516,6 +537,22 @@ export default function PicturesPanel({
           {shown.length > 0 && <h3 className='mt-1 text-xs font-bold uppercase tracking-wide text-slate-500'>In this session</h3>}
         </div>
       )}
+      {notice && (
+        <div
+          role='status'
+          className={`flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl px-3 py-2 text-sm font-semibold ${
+            notice.tone === 'sky' ? 'bg-sky-50 text-sky-800' : 'bg-violet-50 text-violet-800'
+          }`}
+        >
+          <span className={`h-2 w-2 shrink-0 rounded-full ${notice.tone === 'sky' ? 'bg-sky-500' : 'bg-violet-500'}`} aria-hidden='true' />
+          <span className='min-w-0 flex-1'>{notice.text}</span>
+          {notice.action && (
+            <button type='button' onClick={notice.action.onClick} className='rounded-full bg-white px-2.5 py-0.5 text-xs font-bold shadow-sm ring-1 ring-current/20 hover:bg-slate-50'>
+              {notice.action.label}
+            </button>
+          )}
+        </div>
+      )}
       {layout === 'side' && onBrowse && shown.length > 0 && (
         <button type='button' onClick={onBrowse} className={secondary}>
           <LayoutGrid className='h-4 w-4' aria-hidden='true' />
@@ -529,7 +566,30 @@ export default function PicturesPanel({
       ) : (
         <ul className={layout === 'drawer' ? 'grid grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] gap-3' : '-mx-1 flex max-h-[45vh] flex-col gap-2 overflow-y-auto px-1'}>
           {shown.map((p, i) => (
-            <li key={p.id}>
+            <li key={p.id} className='relative'>
+              {(p.id === guidePic || p.id === peerPic) && (
+                <span
+                  className={`pointer-events-none absolute left-2 top-2 z-10 rounded-full px-2 py-0.5 text-xs font-bold text-white shadow ${
+                    p.id === guidePic ? 'bg-sky-500' : 'bg-violet-600'
+                  }`}
+                >
+                  {p.id === guidePic ? (student ? 'Your tutor picked this' : 'Showing to student') : 'Student is here'}
+                </span>
+              )}
+              {onGuide && (
+                <button
+                  type='button'
+                  onClick={() => onGuide(p.id === guidePic ? null : p.id)}
+                  aria-pressed={p.id === guidePic}
+                  aria-label={p.id === guidePic ? 'Stop showing this to your student' : 'Show this picture to your student'}
+                  title={p.id === guidePic ? 'Stop showing this to your student' : 'Show this picture to your student'}
+                  className={`absolute bottom-1.5 right-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full shadow ring-1 ${
+                    p.id === guidePic ? 'bg-sky-500 text-white ring-sky-600' : 'bg-white text-sky-700 ring-slate-200 hover:bg-sky-50'
+                  }`}
+                >
+                  <Pointer className='h-4 w-4' aria-hidden='true' />
+                </button>
+              )}
               <button
                 type='button'
                 aria-label={`Open ${p.title || `picture ${i + 1}`}`}
@@ -537,7 +597,13 @@ export default function PicturesPanel({
                   setNote(null);
                   setOpenId(p.id);
                 }}
-                className='block w-full overflow-hidden rounded-xl border-2 border-slate-200 bg-white hover:border-violet-400'
+                className={`block w-full overflow-hidden rounded-xl border-2 bg-white hover:border-violet-400 ${
+                  p.id === guidePic
+                    ? 'border-sky-400 ring-4 ring-sky-300 motion-safe:animate-pulse'
+                    : p.id === peerPic
+                      ? 'border-violet-400 ring-4 ring-violet-300'
+                      : 'border-slate-200'
+                }`}
               >
                 <img
                   src={srcFor(p.id)}
