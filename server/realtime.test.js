@@ -613,3 +613,25 @@ describe('each screen’s view of the board', () => {
     await nothing(student, 'focus');
   });
 });
+
+describe('library cards with predefined regions', () => {
+  it('lets the student take the card mouth region themselves, with tools on, and nothing else', async () => {
+    const { tutor, code, key } = await openRoom();
+    const { student } = await joinRoom(code);
+    const id = 'b'.repeat(32);
+    const mouth = { id: 'mouth', label: 'Mouth', x: 48, y: 300, w: 744, h: 852, r: 36 };
+    realtime.pictures.add({ code, key, id, w: 1200, h: 1200, type: 'image/jpeg', bytes: Buffer.alloc(2000), regions: [mouth, { id: 'Bad!', x: 0, y: 0, w: 5, h: 5 }] });
+    expect((await student.take('pic:add')).pic.regions).toEqual([mouth]);
+    const piece = (pid, extra) => ({ id: pid, pic: id, crop: { x: 0, y: 0, w: 1200, h: 1200 }, x: 100, y: 100, w: 300, ...extra });
+    student.send({ t: 'piece:add', piece: piece('m1', { region: 'mouth' }) }); // tools still off
+    await nothing(tutor, 'piece:add');
+    tutor.send({ t: 'tools', on: true });
+    await student.take('tools');
+    student.send({ t: 'piece:add', piece: piece('m2', { region: 'mouth' }) });
+    expect((await tutor.take('piece:add')).piece.crop).toMatchObject({ x: 48, y: 300, w: 744, h: 852 });
+    student.send({ t: 'piece:add', piece: piece('m3', { region: 'title' }) }); // not a region of this card
+    await nothing(tutor, 'piece:add');
+    student.send({ t: 'piece:add', piece: piece('m4') }); // a crop of their own
+    await nothing(tutor, 'piece:add');
+  });
+});

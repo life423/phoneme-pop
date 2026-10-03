@@ -209,8 +209,8 @@ export function useWhiteboard(role, send) {
   // Picture pieces work like tiles: shown straight away here, confirmed by the server on drop.
   const pieceActions = useMemo(
     () => ({
-      add({ offer, pic, crop, x, y, w }) {
-        sendRef.current({ t: 'piece:add', piece: { id: makeId('piece'), offer, pic, crop, x, y, w } });
+      add({ offer, region, pic, crop, x, y, w }) {
+        sendRef.current({ t: 'piece:add', piece: { id: makeId('piece'), offer, region, pic, crop, x, y, w } });
       },
       duplicate(id) {
         const p = pieces.current.get(id);

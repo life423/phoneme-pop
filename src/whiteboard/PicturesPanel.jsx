@@ -12,6 +12,7 @@ const secondary =
   'flex items-center justify-center gap-2 rounded-full border border-violet-300 px-3 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50';
 
 const inside = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+const partOf = (r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, r: r.r || 0 });
 const sameCrop = (a, b) => Boolean(a && b) && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 const boxFrom = (a, b) => ({
   x: Math.round(Math.min(a.x, b.x)),
@@ -115,13 +116,23 @@ export default function PicturesPanel({
   const size = pic ? `${pic.w}x${pic.h}` : '';
   const picOffers = pic ? offers.filter((o) => o.pic === pic.id) : [];
   const available = picOffers.filter((o) => !o.taken);
+  // First-party cards (the articulation cards) come with predefined regions, like the mouth
+  // photo: Magic Select offers exactly those, and a student may take them with tools on.
+  const predefined = pic?.regions?.length ? pic.regions : null;
+  const predefinedKey = predefined ? predefined.map((r) => `${r.id}:${r.x},${r.y},${r.w},${r.h}`).join(';') : '';
+  const takeable = student && predefined ? predefined : [];
 
   // Each picture's parts are found once, when the tutor first opens it.
   useEffect(() => {
     setRegions([]);
     setSelection(null);
     setHover(null);
-    if (!src || student) return undefined;
+    if (!src) return undefined;
+    if (predefined) {
+      setRegions(predefined); // first-party regions: no detection needed
+      return undefined;
+    }
+    if (student) return undefined;
     const [w, h] = size.split('x').map(Number);
     let live = true;
     pictureRegions(src, { w, h }).then((found) => {
@@ -130,7 +141,7 @@ export default function PicturesPanel({
     return () => {
       live = false;
     };
-  }, [src, size, student]);
+  }, [src, size, student, predefinedKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addFile = async (file) => {
     if (!file || !canAdd) return;
@@ -168,7 +179,7 @@ export default function PicturesPanel({
   });
 
   // Puts a part on the board: where it was dropped, or in the middle of the board.
-  const place = (crop, clientX, clientY, offerId) => {
+  const place = (crop, clientX, clientY, offerId, regionId) => {
     const w = startingWidth(crop);
     const h = (w * crop.h) / crop.w;
     let at = { x: 800, y: 580 };
@@ -176,7 +187,7 @@ export default function PicturesPanel({
       at = stageApi?.current?.pointAt(clientX, clientY);
       if (!at) return false;
     }
-    onPlace({ offer: offerId, pic: pic.id, crop, x: at.x - w / 2, y: at.y - h / 2, w });
+    onPlace({ offer: offerId, region: regionId, pic: pic.id, crop, x: at.x - w / 2, y: at.y - h / 2, w });
     onPlaced?.();
     if (student) setSelection(null);
     return true;
@@ -190,8 +201,8 @@ export default function PicturesPanel({
     };
   };
 
-  const pickUp = (event, part, offerId) => {
-    press.current = { kind: 'part', part, offer: offerId, sx: event.clientX, sy: event.clientY, dragging: false };
+  const pickUp = (event, part, offerId, regionId) => {
+    press.current = { kind: 'part', part, offer: offerId, region: regionId, sx: event.clientX, sy: event.clientY, dragging: false };
   };
 
   // Press on a part to pick it up. The tutor can also press anywhere else to draw a box.
@@ -206,13 +217,15 @@ export default function PicturesPanel({
     const p = toPic(event);
     if (student) {
       const offer = offerAt(available, p);
-      if (!offer) return;
+      const region = offer ? null : takeable.find((r) => inside(p, r));
+      if (!offer && !region) return;
       if (!canTake) {
         setNote('Your tutor needs to turn on your tools first.');
         return;
       }
-      setSelection(offer.crop);
-      pickUp(event, offer.crop, offer.id);
+      const crop = offer ? offer.crop : partOf(region);
+      setSelection(crop);
+      pickUp(event, crop, offer?.id, region?.id);
       return;
     }
     let part = selection && inside(p, selection) ? selection : null;
@@ -264,7 +277,7 @@ export default function PicturesPanel({
       return;
     }
     setGhost(null);
-    if (current.dragging && event.type === 'pointerup' && !place(current.part, event.clientX, event.clientY, current.offer)) {
+    if (current.dragging && event.type === 'pointerup' && !place(current.part, event.clientX, event.clientY, current.offer, current.region)) {
       setNote('Drop it on the board to place it.');
     }
   };
@@ -272,17 +285,23 @@ export default function PicturesPanel({
   if (pic) {
     const offered = !student && selection ? picOffers.find((o) => sameCrop(o.crop, selection)) : null;
     const chosen = student && selection ? available.find((o) => sameCrop(o.crop, selection)) : null;
+    const chosenRegion = student && selection ? takeable.find((r) => sameCrop(partOf(r), selection)) : null;
     let hint = 'Tap a part to select it, or drag across the picture to draw a box.';
     if (mode === 'box') hint = 'Drag across the picture to draw a box around what you want.';
+    if (predefined && mode === 'magic') hint = `Tap the ${predefined[0].label.toLowerCase()} to select it.`;
     if (selection) hint = 'Drag the selected part onto the board, or use the buttons below.';
     if (offered) hint = offered.taken ? 'Your student has taken this part.' : 'Your student can take this part once, while their tools are on.';
-    if (student) {
+    if (student && takeable.length) {
+      const what = takeable[0].label.toLowerCase();
+      hint = canTake ? `Drag the ${what} onto the board.` : `Your tutor will turn on your tools so you can take the ${what}.`;
+    } else if (student) {
       if (available.length && canTake) hint = 'Drag the bright part onto the board. You can take it once.';
       else if (available.length) hint = 'Your tutor will turn on your tools so you can take the bright part.';
       else if (picOffers.length) hint = 'You’ve used the part your tutor gave you.';
       else hint = 'Your tutor hasn’t given you a part of this picture yet.';
     }
-    const dim = `M0 0H${pic.w}V${pic.h}H0Z${available.map((o) => `M${o.crop.x} ${o.crop.y}h${o.crop.w}v${o.crop.h}h${-o.crop.w}Z`).join('')}`;
+    const bright = [...available.map((o) => o.crop), ...takeable];
+    const dim = `M0 0H${pic.w}V${pic.h}H0Z${bright.map((c) => `M${c.x} ${c.y}h${c.w}v${c.h}h${-c.w}Z`).join('')}`;
     return (
       <section aria-label='Pictures' className={card}>
         <button
@@ -308,7 +327,7 @@ export default function PicturesPanel({
             onPointerCancel={onUp}
             onPointerLeave={() => setHover(null)}
           >
-            {student && available.length > 0 && <path d={dim} fillRule='evenodd' className='fill-slate-900/40' />}
+            {student && bright.length > 0 && <path d={dim} fillRule='evenodd' className='fill-slate-900/40' />}
             {(student ? available : picOffers).map((o) => (
               <Outline key={o.id} r={o.crop} className='fill-none stroke-amber-400' />
             ))}
@@ -346,8 +365,8 @@ export default function PicturesPanel({
           </div>
         )}
         <p className='text-xs text-slate-500'>{hint}</p>
-        {selection && (!student || (chosen && canTake)) && (
-          <button type='button' onClick={() => place(selection, undefined, undefined, chosen?.id)} className={primary}>
+        {selection && (!student || ((chosen || chosenRegion) && canTake)) && (
+          <button type='button' onClick={() => place(selection, undefined, undefined, chosen?.id, chosenRegion?.id)} className={primary}>
             Add to board
           </button>
         )}

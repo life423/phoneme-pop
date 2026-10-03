@@ -55,6 +55,21 @@ function viewRect(m) {
   return w >= 20 && h >= 20 ? { x, y, w, h } : null;
 }
 
+// A library card's predefined Magic Select regions (its mouth photo), checked: up to 8, each a
+// named box inside the picture.
+function cleanRegions(list, w, h) {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, 8).flatMap((r) => {
+    const n = (v) => Math.round(Number(v));
+    const region = { id: String(r?.id || ''), label: String(r?.label || r?.id || '').slice(0, 40), x: n(r?.x), y: n(r?.y), w: n(r?.w), h: n(r?.h), r: Math.max(0, n(r?.r) || 0) };
+    const ok =
+      /^[a-z][a-z0-9-]{0,23}$/.test(region.id) &&
+      [region.x, region.y, region.w, region.h].every(Number.isFinite) &&
+      region.x >= 0 && region.y >= 0 && region.w >= 8 && region.h >= 8 && region.x + region.w <= w && region.y + region.h <= h;
+    return ok ? [region] : [];
+  });
+}
+
 // Azure's ingress appends the real client address as the last X-Forwarded-For entry.
 function clientIp(req) {
   const forwarded = req.headers['x-forwarded-for'];
@@ -113,7 +128,7 @@ export function attachRealtime(server, options = {}) {
     boxes: room.boxes,
     strokes: room.strokes.map(({ id, by, tool, pts, seq }) => ({ id, by, tool, pts, seq })),
     tiles: [...room.tiles.values()],
-    pictures: [...room.pictures.values()].map(({ id, w, h }) => ({ id, w, h })),
+    pictures: [...room.pictures.values()].map(({ id, w, h, regions }) => (regions?.length ? { id, w, h, regions } : { id, w, h })),
     pieces: [...room.pieces.values()],
     offers: [...room.offers.values()],
   });
@@ -633,8 +648,16 @@ export function attachRealtime(server, options = {}) {
       const room = ws.room;
       if (!role || !canDraw(room, role) || !allow(ws, 'tile', POINTER_PER_SECOND)) return;
       const offer = role === 'student' ? room.offers.get(msg.piece?.offer) : null;
-      if (role === 'student' && (!offer || offer.taken)) return;
-      const piece = makePiece(room, offer ? { ...msg.piece, pic: offer.pic, crop: offer.crop } : msg.piece);
+      // A library card's predefined region (its mouth photo): the student may take it themselves,
+      // with their tools on. The crop always comes from the card, never from the message.
+      const region = role === 'student' && !offer ? room.pictures.get(msg.piece?.pic)?.regions?.find((r) => r.id === msg.piece?.region) : null;
+      if (role === 'student' && !region && (!offer || offer.taken)) return;
+      const given = offer
+        ? { ...msg.piece, pic: offer.pic, crop: offer.crop }
+        : region
+          ? { ...msg.piece, crop: { x: region.x, y: region.y, w: region.w, h: region.h, r: region.r } }
+          : msg.piece;
+      const piece = makePiece(room, given);
       if (!piece) return;
       room.pieces.set(piece.id, piece);
       if (offer) {
@@ -806,7 +829,7 @@ export function attachRealtime(server, options = {}) {
 
   // Picture uploads arrive over HTTP (see index.js), from the room's tutor only.
   const pictures = {
-    add({ code, key, id, w, h, type, bytes }) {
+    add({ code, key, id, w, h, type, bytes, regions }) {
       const room = isCode(code) ? rooms.get(code) : undefined;
       if (!room || !isKey(key) || room.key !== key) return { status: 403 };
       const sideOk = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_PICTURE_SIDE;
@@ -814,9 +837,10 @@ export function attachRealtime(server, options = {}) {
       if (room.pictures.has(id)) return { status: 200 }; // already here (a retry, or a restore)
       if (room.pictures.size >= MAX_PICTURES) return { status: 409 };
       if (pictureBytes + bytes.length > maxPictureBytes) return { status: 503 };
-      room.pictures.set(id, { id, w, h, type, bytes });
+      const known = cleanRegions(regions, w, h);
+      room.pictures.set(id, { id, w, h, type, bytes, regions: known });
       pictureBytes += bytes.length;
-      broadcast(room, { t: 'pic:add', pic: { id, w, h } });
+      broadcast(room, { t: 'pic:add', pic: known.length ? { id, w, h, regions: known } : { id, w, h } });
       return { status: 201 };
     },
     get(code, id) {

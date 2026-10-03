@@ -44,7 +44,7 @@ export function connectLibrary({ uri = process.env.MONGODB_URI, account = proces
       const card = await cards.findOne({ _id: new ObjectId(id) });
       if (!card?.image?.path) return null;
       const bytes = await container.getBlobClient(card.image.path).downloadToBuffer();
-      return { bytes, w: card.image.width, h: card.image.height };
+      return { bytes, w: card.image.width, h: card.image.height, regions: Array.isArray(card.regions) ? card.regions : [] };
     },
     close: () => client.close(),
   };
