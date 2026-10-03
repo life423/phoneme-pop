@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BoxSelect, Check, Gift, Image as ImageIcon, LayoutGrid, Plus, Pointer, Wand2, X } from 'lucide-react';
+import { ArrowLeft, BoxSelect, Check, Expand, Gift, Image as ImageIcon, LayoutGrid, Plus, Pointer, Wand2, X } from 'lucide-react';
 import { regionAt } from './regions.js';
 import { pictureRegions } from './pictures.js';
 import { MAX_PICTURES, startingWidth } from '../../shared/pieces.js';
@@ -534,7 +534,6 @@ export default function PicturesPanel({
               </li>
             ))}
           </ul>
-          {shown.length > 0 && <h3 className='mt-1 text-xs font-bold uppercase tracking-wide text-slate-500'>In this session</h3>}
         </div>
       )}
       {notice && (
@@ -553,7 +552,23 @@ export default function PicturesPanel({
           )}
         </div>
       )}
-      {layout === 'side' && onBrowse && shown.length > 0 && (
+      {!student && layout === 'side' && shown.length > 0 && (
+        <div className='mt-1 flex items-center justify-between gap-2'>
+          <h3 className='text-xs font-bold uppercase tracking-wide text-slate-500'>In this session · {shown.length}</h3>
+          {onBrowse && (
+            <button
+              type='button'
+              onClick={onBrowse}
+              title='Open every picture in this session in a larger view'
+              className='inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-bold text-violet-700 hover:bg-violet-50'
+            >
+              <Expand className='h-3.5 w-3.5' aria-hidden='true' />
+              View all
+            </button>
+          )}
+        </div>
+      )}
+      {student && layout === 'side' && onBrowse && shown.length > 0 && (
         <button type='button' onClick={onBrowse} className={secondary}>
           <LayoutGrid className='h-4 w-4' aria-hidden='true' />
           Open picture library
