@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BoxSelect, Check, Expand, Gift, Image as ImageIcon, LayoutGrid, Plus, Pointer, Wand2, X } from 'lucide-react';
+import { ArrowLeft, BoxSelect, Check, Gift, Image as ImageIcon, LayoutGrid, Plus, Pointer, Wand2, X } from 'lucide-react';
 import { regionAt } from './regions.js';
 import { pictureRegions } from './pictures.js';
 import { MAX_PICTURES, startingWidth } from '../../shared/pieces.js';
@@ -137,6 +137,7 @@ export default function PicturesPanel({
   const predefinedKey = predefined ? predefined.map((r) => `${r.id}:${r.x},${r.y},${r.w},${r.h}`).join(';') : '';
   const takeable = student && predefined ? predefined : [];
   const inSession = (card) => pictures.some((p) => p.library === card.id);
+  const uploads = pictures.filter((p) => !p.library).length; // library cards have their own limit
 
   // Each picture's parts are found once, when the tutor first opens it.
   useEffect(() => {
@@ -451,15 +452,21 @@ export default function PicturesPanel({
         <h2 className='text-sm font-bold text-slate-700'>Pictures</h2>
         {!student && (
           <span className='text-xs font-semibold text-slate-500'>
-            {pictures.filter((p) => !p.library).length}/{MAX_PICTURES} uploads
+            {uploads}/{MAX_PICTURES} uploads
           </span>
         )}
       </div>
+      {!student && layout === 'side' && onBrowse && shown.length > 0 && (
+        <button type='button' onClick={onBrowse} className={secondary}>
+          <LayoutGrid className='h-4 w-4' aria-hidden='true' />
+          Open picture library
+        </button>
+      )}
       {canAdd && !browseOnly && (
         <>
           <button
             type='button'
-            disabled={busy || pictures.length >= MAX_PICTURES}
+            disabled={busy || uploads >= MAX_PICTURES}
             onClick={() => fileRef.current?.click()}
             className={primary}
           >
@@ -553,20 +560,7 @@ export default function PicturesPanel({
         </div>
       )}
       {!student && layout === 'side' && shown.length > 0 && (
-        <div className='mt-1 flex items-center justify-between gap-2'>
-          <h3 className='text-xs font-bold uppercase tracking-wide text-slate-500'>In this session · {shown.length}</h3>
-          {onBrowse && (
-            <button
-              type='button'
-              onClick={onBrowse}
-              title='Open every picture in this session in a larger view'
-              className='inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-bold text-violet-700 hover:bg-violet-50'
-            >
-              <Expand className='h-3.5 w-3.5' aria-hidden='true' />
-              View all
-            </button>
-          )}
-        </div>
+        <h3 className='mt-1 text-xs font-bold uppercase tracking-wide text-slate-500'>In this session · {shown.length}</h3>
       )}
       {student && layout === 'side' && onBrowse && shown.length > 0 && (
         <button type='button' onClick={onBrowse} className={secondary}>
